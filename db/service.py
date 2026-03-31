@@ -41,9 +41,13 @@ def save_analysis(data: dict) -> str:
     session_id = data.get("session_id", f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
 
     with SessionLocal() as db:
-        # 같은 session_id가 있으면 삭제 후 재저장
+        # 같은 session_id가 있으면 관련 데이터 모두 삭제 후 재저장
         existing = db.query(AnalysisRun).filter_by(session_id=session_id).first()
         if existing:
+            for v in existing.vulnerabilities:
+                for p in v.patches:
+                    db.delete(p)
+                db.delete(v)
             db.delete(existing)
             db.commit()
 

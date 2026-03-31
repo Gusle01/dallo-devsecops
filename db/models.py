@@ -125,7 +125,7 @@ class Vulnerability(Base):
     __tablename__ = "vulnerabilities"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    vuln_id = Column(String(100), unique=True, nullable=False)  # 고유 ID
+    vuln_id = Column(String(100), nullable=False)  # 세션 내 고유 ID
     run_id = Column(Integer, ForeignKey("analysis_runs.id"), nullable=True)
 
     # 취약점 정보
