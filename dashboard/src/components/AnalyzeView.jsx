@@ -529,10 +529,17 @@ function ApplyButton({ patch, vuln }) {
   const [prUrl, setPrUrl] = useState(null)
   const [branch, setBranch] = useState('')
   const [message, setMessage] = useState('')
-  const [ghRepo, setGhRepo] = useState('')
-  const [ghToken, setGhToken] = useState('')
+  const [ghRepo, setGhRepo] = useState(() => localStorage.getItem('dallo_gh_repo') || '')
+  const [ghToken, setGhToken] = useState(() => localStorage.getItem('dallo_gh_token') || '')
 
-  const showGithubForm = () => setState('github_form')
+  const showGithubForm = () => {
+    // 이미 저장된 정보가 있으면 바로 적용
+    if (ghRepo && ghToken) {
+      applyFix()
+    } else {
+      setState('github_form')
+    }
+  }
 
   const applyFix = async () => {
     setState('loading')
@@ -631,9 +638,14 @@ function ApplyButton({ patch, vuln }) {
             }}
           />
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <button
-            onClick={applyFix}
+            onClick={() => {
+              // localStorage에 저장
+              localStorage.setItem('dallo_gh_repo', ghRepo)
+              localStorage.setItem('dallo_gh_token', ghToken)
+              applyFix()
+            }}
             disabled={!ghRepo || !ghToken}
             style={{
               padding: '7px 18px', borderRadius: 6, border: 'none',
@@ -642,7 +654,7 @@ function ApplyButton({ patch, vuln }) {
               fontWeight: 600,
             }}
           >
-            PR 생성
+            연결 + PR 생성
           </button>
           <button
             onClick={() => setState(null)}
@@ -653,6 +665,25 @@ function ApplyButton({ patch, vuln }) {
           >
             취소
           </button>
+          {localStorage.getItem('dallo_gh_token') && (
+            <button
+              onClick={() => {
+                localStorage.removeItem('dallo_gh_repo')
+                localStorage.removeItem('dallo_gh_token')
+                setGhRepo('')
+                setGhToken('')
+              }}
+              style={{
+                padding: '7px 14px', borderRadius: 6, border: '1px solid #7f1d1d',
+                background: 'transparent', color: '#ef4444', fontSize: 12, cursor: 'pointer',
+              }}
+            >
+              연결 해제
+            </button>
+          )}
+        </div>
+        <div style={{ fontSize: 11, color: '#64748b', marginTop: 6 }}>
+          연결 정보는 브라우저에만 저장됩니다. 서버로 전송되지 않습니다.
         </div>
       </div>
     )
@@ -674,7 +705,7 @@ function ApplyButton({ patch, vuln }) {
         fontWeight: 500,
       }}
     >
-      {state === 'loading' ? '적용 중...' : '✅ Apply to GitHub'}
+      {state === 'loading' ? '적용 중...' : ghRepo ? `✅ Apply to ${ghRepo}` : '✅ Apply to GitHub'}
     </button>
   )
 }
