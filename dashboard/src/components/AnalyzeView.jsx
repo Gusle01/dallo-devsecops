@@ -526,6 +526,9 @@ function ResultView({ result }) {
 function ApplyButton({ patch, vuln }) {
   const [state, setState] = useState(null) // null | loading | applied | error
   const [diff, setDiff] = useState('')
+  const [prUrl, setPrUrl] = useState(null)
+  const [branch, setBranch] = useState('')
+  const [message, setMessage] = useState('')
 
   const applyFix = async () => {
     setState('loading')
@@ -543,6 +546,9 @@ function ApplyButton({ patch, vuln }) {
       })
       const data = await r.json()
       setDiff(data.diff || '')
+      setPrUrl(data.pr_url || null)
+      setBranch(data.branch || '')
+      setMessage(data.message || '')
       setState('applied')
     } catch (e) {
       setState('error')
@@ -553,11 +559,21 @@ function ApplyButton({ patch, vuln }) {
     return (
       <div style={{ marginTop: 10 }}>
         <div style={{
-          display: 'flex', alignItems: 'center', gap: 8,
-          padding: '8px 14px', background: '#14532d', borderRadius: 6,
+          padding: '10px 14px', background: '#14532d', borderRadius: 6,
           fontSize: 13, color: '#86efac', marginBottom: 8,
         }}>
-          ✅ 수정안 적용 완료
+          {prUrl ? (
+            <>
+              ✅ PR 생성 완료 —{' '}
+              <a href={prUrl} target="_blank" rel="noopener noreferrer"
+                 style={{ color: '#60a5fa', fontWeight: 600 }}>
+                Pull Request 보기
+              </a>
+              {branch && <span style={{ color: '#64748b', marginLeft: 8 }}>({branch})</span>}
+            </>
+          ) : (
+            <>✅ 수정안 적용 완료 {message && <span style={{ color: '#94a3b8' }}>— {message}</span>}</>
+          )}
         </div>
         {diff && (
           <details>
