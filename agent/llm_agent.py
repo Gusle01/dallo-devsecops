@@ -170,17 +170,61 @@ class DalloAgent:
             return int(match.group(1)) + 2  # 여유 2초 추가
         return 30  # 기본 30초 대기
 
+    def generate_multi_patches(self, vuln: VulnerabilityReport) -> list[PatchSuggestion]:
+        """
+        취약점 1건에 대해 3가지 수정안을 생성합니다.
+
+        - minimal: 최소한의 변경으로 취약점만 제거
+        - recommended: 보안 모범 사례를 적용한 권장 수정
+        - structural: 구조적 개선을 포함한 근본적 해결
+
+        Returns:
+            list[PatchSuggestion]: 3가지 수정안 (실패 시 1개만 반환될 수 있음)
+        """
+        prompt = self._build_multi_prompt(vuln)
+
+        for attempt in range(self.max_retries + 1):
+            try:
+                response = self._call_llm(prompt)
+                patches = self._parse_multi_response(response, vuln.id)
+
+                if not patches:
+                    raise ValueError("LLM이 수정안을 반환하지 않았습니다.")
+
+                return patches
+            except Exception as e:
+                err_str = str(e)
+                logger.warning(f"[시도 {attempt+1}/{self.max_retries+1}] 다중 수정안 생성 실패: {e}")
+
+                if "429" in err_str or "quota" in err_str.lower():
+                    if self._rotate_key():
+                        logger.info(f"  Rate limit → 다른 API 키로 전환")
+                    else:
+                        wait = self._extract_retry_delay(err_str)
+                        logger.info(f"  Rate limit 감지 — {wait}초 대기 중...")
+                        time.sleep(wait)
+
+                if attempt == self.max_retries:
+                    # 다중 실패 시 단일 수정안으로 폴백
+                    single = self.generate_patch(vuln)
+                    return [single]
+
     def generate_patches(
         self,
         vulnerabilities: list[VulnerabilityReport],
+        multi: bool = False,
     ) -> list[PatchSuggestion]:
         """여러 취약점에 대해 일괄 수정안 생성"""
         patches = []
         for i, vuln in enumerate(vulnerabilities):
             logger.info(f"[{i+1}/{len(vulnerabilities)}] {vuln.rule_id} ({vuln.severity}) 처리 중...")
-            patch = self.generate_patch(vuln)
-            patches.append(patch)
-            logger.info(f"  → 상태: {patch.status}")
+            if multi:
+                result = self.generate_multi_patches(vuln)
+                patches.extend(result)
+            else:
+                patch = self.generate_patch(vuln)
+                patches.append(patch)
+            logger.info(f"  → {len(patches)}건 생성됨")
         return patches
 
     def _build_prompt(self, vuln: VulnerabilityReport) -> str:
@@ -225,6 +269,115 @@ class DalloAgent:
 (여기에 수정 이유를 설명하세요)
 """
         return prompt
+
+    def _build_multi_prompt(self, vuln: VulnerabilityReport) -> str:
+        """3가지 수정 옵션을 요청하는 프롬프트"""
+        code = vuln.function_code or vuln.code_snippet
+        cleaned_code = self._strip_line_numbers(code)
+        imports = vuln.file_imports or "# (없음)"
+
+        prompt = f"""당신은 보안 코드 리뷰 전문가입니다. 아래 보안 취약점에 대해 **3가지 수정 방안**을 제시하세요.
+
+## 취약점 정보
+- 규칙: {vuln.rule_id} ({vuln.title})
+- 심각도: {vuln.severity}
+- 설명: {vuln.description}
+- CWE: {vuln.cwe_id or 'N/A'}
+- 파일: {vuln.file_path}:{vuln.line_number}
+
+## Import 문
+```
+{imports}
+```
+
+## 취약한 코드
+```
+{cleaned_code}
+```
+
+## 요청사항
+아래 3가지 수정 방안을 각각 제시하세요. 각 방안마다 수정된 코드와 설명을 포함하세요.
+
+### 옵션 1: 최소 수정 (Minimal Fix)
+가장 적은 변경으로 취약점만 제거하는 방법입니다.
+
+```
+(수정된 코드)
+```
+설명: (왜 이렇게 수정했는지)
+
+### 옵션 2: 권장 수정 (Recommended Fix)
+보안 모범 사례를 적용한 권장 수정 방법입니다.
+
+```
+(수정된 코드)
+```
+설명: (왜 이렇게 수정했는지)
+
+### 옵션 3: 구조적 개선 (Structural Fix)
+코드 구조를 개선하여 근본적으로 취약점을 해결하는 방법입니다.
+
+```
+(수정된 코드)
+```
+설명: (왜 이렇게 수정했는지)
+"""
+        return prompt
+
+    def _parse_multi_response(self, response: str, vuln_id: str) -> list[PatchSuggestion]:
+        """LLM 응답에서 3가지 수정안을 추출합니다."""
+        fix_types = [
+            ("minimal", "최소 수정", r"옵션\s*1[:\s].*?(?:Minimal|최소)"),
+            ("recommended", "권장 수정", r"옵션\s*2[:\s].*?(?:Recommend|권장)"),
+            ("structural", "구조적 개선", r"옵션\s*3[:\s].*?(?:Structural|구조)"),
+        ]
+
+        # 옵션별로 분리
+        sections = re.split(r"###\s*옵션\s*\d", response)
+        patches = []
+
+        for i, (fix_type, label, _) in enumerate(fix_types):
+            section_idx = i + 1  # sections[0]은 헤더
+            if section_idx >= len(sections):
+                continue
+
+            section = sections[section_idx]
+            code_matches = re.findall(r"```(?:\w*)\s*\n(.*?)```", section, re.DOTALL)
+            code = code_matches[0].strip() if code_matches else ""
+
+            # 설명 추출
+            explanation = ""
+            exp_match = re.search(r"설명[:\s]*(.*?)(?:\n###|\n```|$)", section, re.DOTALL)
+            if exp_match:
+                explanation = exp_match.group(1).strip()
+            if not explanation:
+                # 코드 블록 이후 텍스트
+                last_block = section.rfind("```")
+                if last_block != -1:
+                    explanation = section[last_block + 3:].strip()
+
+            if code:
+                patches.append(PatchSuggestion(
+                    vulnerability_id=vuln_id,
+                    fixed_code=code,
+                    explanation=f"[{label}] {explanation}" if explanation else f"[{label}]",
+                    fix_type=fix_type,
+                    status=PatchStatus.GENERATED,
+                ))
+
+        # 아무것도 못 파싱했으면 단일 파싱 시도
+        if not patches:
+            code, explanation = self._parse_response(response)
+            if code:
+                patches.append(PatchSuggestion(
+                    vulnerability_id=vuln_id,
+                    fixed_code=code,
+                    explanation=explanation,
+                    fix_type="recommended",
+                    status=PatchStatus.GENERATED,
+                ))
+
+        return patches
 
     @staticmethod
     def _strip_line_numbers(code: str) -> str:

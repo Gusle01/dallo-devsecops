@@ -63,6 +63,7 @@ class AnalyzeRequest(BaseModel):
     code: str
     filename: str = "uploaded_code.py"
     use_llm: bool = True
+    multi_patch: bool = False  # True: 3가지 수정안, False: 1가지
     provider: str = "gemini"
     model: str = "gemini-2.5-flash"
 
@@ -256,7 +257,7 @@ def get_session_detail(session_id: str):
 # 코드 분석 실행 API
 # ============================================================
 
-def _run_analysis(job_id: str, code: str, filename: str, use_llm: bool, provider: str, model: str):
+def _run_analysis(job_id: str, code: str, filename: str, use_llm: bool, provider: str, model: str, multi_patch: bool = False):
     """백그라운드에서 분석 파이프라인 실행"""
     from analyzer.semgrep_runner import detect_and_run, SemgrepRunner, EXTENSION_MAP
     from analyzer.bandit_runner import BanditRunner
@@ -323,7 +324,7 @@ def _run_analysis(job_id: str, code: str, filename: str, use_llm: bool, provider
             try:
                 from agent.llm_agent import DalloAgent
                 agent = DalloAgent(provider=provider, model=model)
-                patches = agent.generate_patches(vuln_reports)
+                patches = agent.generate_patches(vuln_reports, multi=multi_patch)
             except Exception as e:
                 analysis_jobs[job_id]["llm_error"] = str(e)
 
@@ -393,7 +394,7 @@ def start_analysis(req: AnalyzeRequest, background_tasks: BackgroundTasks):
 
     background_tasks.add_task(
         _run_analysis, job_id, req.code, req.filename,
-        req.use_llm, req.provider, req.model,
+        req.use_llm, req.provider, req.model, req.multi_patch,
     )
 
     return {"job_id": job_id, "status": "queued", "message": "분석이 시작되었습니다."}

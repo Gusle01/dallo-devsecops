@@ -105,6 +105,7 @@ export default function AnalyzeView({ onComplete }) {
   const [code, setCode] = useState('')
   const [filename, setFilename] = useState('my_code.py')
   const [useLlm, setUseLlm] = useState(true)
+  const [multiPatch, setMultiPatch] = useState(false)
   const [status, setStatus] = useState(null) // null | polling | completed | failed
   const [step, setStep] = useState('')
   const [result, setResult] = useState(null)
@@ -146,6 +147,7 @@ export default function AnalyzeView({ onComplete }) {
           code,
           filename,
           use_llm: useLlm,
+          multi_patch: multiPatch,
           provider: 'gemini',
           model: 'gemini-2.5-flash',
         }),
@@ -289,15 +291,28 @@ export default function AnalyzeView({ onComplete }) {
 
         {/* 옵션 + 실행 */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: '#94a3b8', cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={useLlm}
-              onChange={e => setUseLlm(e.target.checked)}
-              style={{ accentColor: '#3b82f6' }}
-            />
-            AI 수정안 생성 (Gemini)
-          </label>
+          <div style={{ display: 'flex', gap: 20 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: '#94a3b8', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={useLlm}
+                onChange={e => setUseLlm(e.target.checked)}
+                style={{ accentColor: '#3b82f6' }}
+              />
+              AI 수정안 생성
+            </label>
+            {useLlm && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: '#94a3b8', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={multiPatch}
+                  onChange={e => setMultiPatch(e.target.checked)}
+                  style={{ accentColor: '#a855f7' }}
+                />
+                3가지 수정안 (최소/권장/구조적)
+              </label>
+            )}
+          </div>
           <button
             onClick={startAnalysis}
             disabled={!code.trim() || status === 'polling'}
@@ -362,8 +377,13 @@ function ResultView({ result }) {
   const vulns = result.vulnerabilities || []
   const patches = result.patches || []
 
+  // 취약점별 패치 그룹핑 (다중 수정안 지원)
   const patchMap = {}
-  patches.forEach(p => { patchMap[p.vulnerability_id] = p })
+  patches.forEach(p => {
+    const vid = p.vulnerability_id
+    if (!patchMap[vid]) patchMap[vid] = []
+    patchMap[vid].push(p)
+  })
 
   return (
     <div>
@@ -403,10 +423,8 @@ function ResultView({ result }) {
 
       {/* 취약점 + 패치 */}
       {vulns.map((v, i) => {
-        const patch = patchMap[v.id]
+        const vPatches = patchMap[v.id] || []
         const emoji = { HIGH: '🔴', MEDIUM: '🟡', LOW: '🔵' }[v.severity] || '⚪'
-        const hasFix = patch && patch.fixed_code
-        const isVerified = patch && patch.status && patch.status.toUpperCase().includes('VERIFIED')
 
         return (
           <div key={i} style={{
@@ -433,42 +451,59 @@ function ResultView({ result }) {
               }}>{v.code_snippet}</pre>
             )}
 
-            {hasFix && (
-              <div style={{ marginTop: 12 }}>
-                <div style={{
-                  display: 'flex', gap: 6, marginBottom: 8,
-                }}>
-                  <span style={{
-                    fontSize: 12, fontWeight: 600, padding: '3px 10px', borderRadius: 6,
-                    background: isVerified ? '#22c55e15' : '#3b82f615',
-                    color: isVerified ? '#22c55e' : '#3b82f6',
-                  }}>
-                    {isVerified ? '✅ Verified Fix' : '🤖 AI Suggested Fix'}
-                  </span>
-                  {patch.syntax_valid && (
-                    <span style={{ fontSize: 11, padding: '3px 8px', background: '#22c55e15', color: '#22c55e', borderRadius: 6 }}>
-                      Syntax OK
-                    </span>
-                  )}
-                </div>
-                {patch.explanation && (
-                  <div style={{
-                    padding: 10, background: '#0f172a', borderRadius: 6,
-                    fontSize: 12, color: '#cbd5e1', borderLeft: '3px solid #3b82f6',
-                    marginBottom: 8, lineHeight: 1.6,
-                  }}>
-                    {patch.explanation.slice(0, 400)}
-                  </div>
-                )}
-                <pre style={{
-                  background: '#0f172a', padding: 12, borderRadius: 8,
-                  fontSize: 12, lineHeight: 1.6, overflow: 'auto',
-                  color: '#86efac', border: '1px solid #14532d',
-                }}>{patch.fixed_code}</pre>
-              </div>
-            )}
+            {/* 패치 목록 */}
+            {vPatches.filter(p => p.fixed_code).map((patch, pi) => {
+              const isVerified = patch.status && patch.status.toUpperCase().includes('VERIFIED')
+              const typeLabel = {
+                minimal: '⚡ 최소 수정',
+                recommended: '✅ 권장 수정',
+                structural: '🏗️ 구조적 개선',
+              }[patch.fix_type] || '🤖 AI 수정안'
+              const typeColor = {
+                minimal: '#eab308',
+                recommended: '#3b82f6',
+                structural: '#a855f7',
+              }[patch.fix_type] || '#3b82f6'
 
-            {patch && !hasFix && (
+              return (
+                <div key={pi} style={{ marginTop: 12, borderTop: pi > 0 ? '1px solid #334155' : 'none', paddingTop: pi > 0 ? 12 : 0 }}>
+                  <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                    <span style={{
+                      fontSize: 12, fontWeight: 600, padding: '3px 10px', borderRadius: 6,
+                      background: `${typeColor}15`, color: typeColor,
+                    }}>
+                      {typeLabel}
+                    </span>
+                    {patch.syntax_valid && (
+                      <span style={{ fontSize: 11, padding: '3px 8px', background: '#22c55e15', color: '#22c55e', borderRadius: 6 }}>
+                        Syntax OK
+                      </span>
+                    )}
+                    {isVerified && (
+                      <span style={{ fontSize: 11, padding: '3px 8px', background: '#22c55e15', color: '#22c55e', borderRadius: 6 }}>
+                        Verified
+                      </span>
+                    )}
+                  </div>
+                  {patch.explanation && (
+                    <div style={{
+                      padding: 10, background: '#0f172a', borderRadius: 6,
+                      fontSize: 12, color: '#cbd5e1', borderLeft: `3px solid ${typeColor}`,
+                      marginBottom: 8, lineHeight: 1.6,
+                    }}>
+                      {patch.explanation.slice(0, 400)}
+                    </div>
+                  )}
+                  <pre style={{
+                    background: '#0f172a', padding: 12, borderRadius: 8,
+                    fontSize: 12, lineHeight: 1.6, overflow: 'auto',
+                    color: '#86efac', border: '1px solid #14532d',
+                  }}>{patch.fixed_code}</pre>
+                </div>
+              )
+            })}
+
+            {vPatches.length > 0 && vPatches.every(p => !p.fixed_code) && (
               <div style={{ marginTop: 8, fontSize: 12, color: '#ef4444' }}>
                 ❌ AI 수정안 생성 실패
               </div>
