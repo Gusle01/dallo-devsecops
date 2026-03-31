@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 # 프로바이더별 기본 모델
 DEFAULT_MODELS = {
     "openai": "gpt-4o",
-    "gemini": "gemini-2.0-flash",
+    "gemini": "gemini-3.1-flash-lite-preview",
     "anthropic": "claude-sonnet-4-20250514",
 }
 

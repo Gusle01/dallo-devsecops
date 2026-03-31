@@ -65,7 +65,7 @@ class AnalyzeRequest(BaseModel):
     use_llm: bool = True
     multi_patch: bool = False
     provider: str = "gemini"
-    model: str = "gemini-2.0-flash"
+    model: str = "gemini-3.1-flash-lite-preview"
 
 
 class ApplyPatchRequest(BaseModel):

@@ -7,7 +7,7 @@
 사용법:
   python scripts/run_analysis.py --target test_targets/
   python scripts/run_analysis.py --target test_targets/sql_injection.py --severity HIGH
-  python scripts/run_analysis.py --target test_targets/ --provider gemini --model gemini-2.0-flash
+  python scripts/run_analysis.py --target test_targets/ --provider gemini --model gemini-3.1-flash-lite-preview
   python scripts/run_analysis.py --target test_targets/ --json-output reports/full_result.json
 """
 
