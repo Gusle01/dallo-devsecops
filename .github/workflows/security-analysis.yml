@@ -1,0 +1,109 @@
+name: Dallo Security Analysis
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '**.py'
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+
+jobs:
+  security-scan:
+    name: 🔍 보안 취약점 분석
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      # 1. 코드 체크아웃
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # 2. Python 환경 설정
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      # 3. 의존성 설치
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # 4. 변경된 Python 파일 추출
+      - name: Get changed Python files
+        id: changed-files
+        run: |
+          FILES=$(git diff --name-only --diff-filter=ACMR origin/${{ github.base_ref }}...HEAD -- '*.py' | tr '\n' ' ')
+          echo "files=$FILES" >> $GITHUB_OUTPUT
+          echo "변경된 Python 파일: $FILES"
+          if [ -z "$FILES" ]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      # 5. Bandit 정적 분석
+      - name: Run Bandit analysis
+        if: steps.changed-files.outputs.skip == 'false'
+        run: |
+          mkdir -p reports
+          bandit -r . \
+            -f json \
+            -o reports/bandit_report.json \
+            --exclude './venv,./tests,./.venv,./node_modules,./dashboard' \
+            --confidence-level all \
+            --severity-level all \
+            || true
+          echo "Bandit 분석 완료"
+
+      # 6. 전체 파이프라인 (분석 → LLM → 검증)
+      - name: Run full analysis pipeline
+        if: steps.changed-files.outputs.skip == 'false'
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          python scripts/run_analysis.py \
+            --target . \
+            --severity MEDIUM \
+            --provider gemini \
+            --model gemini-2.5-flash \
+            --json-output reports/full_result.json \
+            ${{ env.GEMINI_API_KEY == '' && '--skip-llm' || '' }}
+        continue-on-error: true
+
+      # 7. 테스트 실행
+      - name: Run tests
+        run: |
+          python -m pytest tests/ -v --tb=short
+
+      # 8. PR 코멘트 게시
+      - name: Post analysis results to PR
+        if: steps.changed-files.outputs.skip == 'false'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          python scripts/post_pr_comment.py
+
+      # 9. Python 파일 변경 없음
+      - name: No Python files changed
+        if: steps.changed-files.outputs.skip == 'true'
+        run: echo "변경된 Python 파일이 없어 분석을 건너뜁니다."
+
+      # 10. 리포트 아티팩트 저장
+      - name: Upload analysis reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-reports
+          path: reports/
+          retention-days: 30

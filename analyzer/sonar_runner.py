@@ -1,0 +1,179 @@
+"""
+SonarQube 정적 분석 실행 모듈
+
+SonarQube API를 통해 코드 분석을 실행하고 결과를 조회합니다.
+Docker 환경에서 SonarQube가 실행 중이어야 합니다.
+
+사전 준비:
+  1. docker-compose up -d (docker/ 디렉토리)
+  2. http://localhost:9000 에서 프로젝트 생성 및 토큰 발급
+  3. sonar-scanner 설치 또는 Docker로 실행
+"""
+
+import os
+import json
+import time
+import subprocess
+import requests
+from typing import Optional
+from dataclasses import dataclass
+
+from analyzer.bandit_runner import Vulnerability, AnalysisResult
+
+
+@dataclass
+class SonarConfig:
+    """SonarQube 연결 설정"""
+    host_url: str = "http://localhost:9000"
+    token: str = ""
+    project_key: str = "dallo-devsecops"
+
+
+class SonarRunner:
+    """SonarQube 분석 실행 및 결과 조회"""
+
+    def __init__(self, config: Optional[SonarConfig] = None):
+        self.config = config or SonarConfig(
+            token=os.environ.get("SONAR_TOKEN", ""),
+        )
+        self.base_url = self.config.host_url
+        self.auth = (self.config.token, "")
+
+    def is_available(self) -> bool:
+        """SonarQube 서버가 실행 중인지 확인"""
+        try:
+            resp = requests.get(
+                f"{self.base_url}/api/system/status",
+                timeout=5,
+            )
+            return resp.status_code == 200 and resp.json().get("status") == "UP"
+        except requests.ConnectionError:
+            return False
+
+    def run_scan(self, project_path: str = ".") -> bool:
+        """
+        sonar-scanner를 실행하여 코드를 분석합니다.
+
+        사전 조건: sonar-scanner가 PATH에 있거나 Docker로 실행
+        """
+        cmd = [
+            "sonar-scanner",
+            f"-Dsonar.projectKey={self.config.project_key}",
+            f"-Dsonar.host.url={self.base_url}",
+            f"-Dsonar.token={self.config.token}",
+            f"-Dsonar.projectBaseDir={project_path}",
+        ]
+
+        # sonar-project.properties 파일이 있으면 자동으로 읽음
+        try:
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+            return proc.returncode == 0
+        except FileNotFoundError:
+            print("[!] sonar-scanner가 설치되어 있지 않습니다.")
+            print("    설치 방법: https://docs.sonarqube.org/latest/analyzing-source-code/scanners/sonarscanner/")
+            return False
+
+    def get_issues(
+        self,
+        severity: Optional[str] = None,
+        page_size: int = 100,
+    ) -> AnalysisResult:
+        """
+        SonarQube API에서 이슈(취약점) 목록을 조회합니다.
+
+        Args:
+            severity: 필터할 심각도 (BLOCKER, CRITICAL, MAJOR, MINOR, INFO)
+            page_size: 페이지당 결과 수
+        """
+        result = AnalysisResult(tool="sonarqube", target_path=self.config.project_key)
+
+        params = {
+            "componentKeys": self.config.project_key,
+            "ps": page_size,
+            "types": "VULNERABILITY,BUG,CODE_SMELL",
+        }
+        if severity:
+            params["severities"] = severity
+
+        try:
+            resp = requests.get(
+                f"{self.base_url}/api/issues/search",
+                params=params,
+                auth=self.auth,
+                timeout=30,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except requests.RequestException as e:
+            result.error = str(e)
+            return result
+
+        result.raw_output = data
+
+        # SonarQube 심각도 → 프로젝트 심각도 매핑
+        severity_map = {
+            "BLOCKER": "HIGH",
+            "CRITICAL": "HIGH",
+            "MAJOR": "MEDIUM",
+            "MINOR": "LOW",
+            "INFO": "LOW",
+        }
+
+        for issue in data.get("issues", []):
+            sonar_severity = issue.get("severity", "INFO")
+            mapped_severity = severity_map.get(sonar_severity, "LOW")
+
+            # 파일 경로에서 프로젝트 키 제거
+            component = issue.get("component", "")
+            file_path = component.split(":", 1)[-1] if ":" in component else component
+
+            vuln = Vulnerability(
+                tool="sonarqube",
+                rule_id=issue.get("rule", ""),
+                severity=mapped_severity,
+                confidence="HIGH",  # SonarQube는 confidence 개념 없음
+                title=issue.get("message", ""),
+                description=issue.get("message", ""),
+                file_path=file_path,
+                line_number=issue.get("line", 0),
+            )
+            result.vulnerabilities.append(vuln)
+
+            # 카운트
+            if mapped_severity == "HIGH":
+                result.high_count += 1
+            elif mapped_severity == "MEDIUM":
+                result.medium_count += 1
+            else:
+                result.low_count += 1
+
+        result.total_issues = len(result.vulnerabilities)
+        return result
+
+    def wait_for_analysis(self, timeout: int = 120) -> bool:
+        """분석 완료를 대기합니다."""
+        start = time.time()
+        while time.time() - start < timeout:
+            try:
+                resp = requests.get(
+                    f"{self.base_url}/api/ce/activity",
+                    params={
+                        "component": self.config.project_key,
+                        "ps": 1,
+                        "onlyCurrents": "true",
+                    },
+                    auth=self.auth,
+                    timeout=10,
+                )
+                tasks = resp.json().get("tasks", [])
+                if tasks and tasks[0].get("status") == "SUCCESS":
+                    return True
+            except requests.RequestException:
+                pass
+            time.sleep(5)
+        return False

@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+venv/
+.venv/
+
+# Environment
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Reports (분석 결과 — 런타임 생성)
+reports/
+*.json.bak
+
+# Uploads
+uploads/
+
+# Claude memory
+.claude/
+
+# Docker volumes
+docker/sonarqube_data/
+docker/sonarqube_logs/
+docker/sonarqube_extensions/
+docker/postgresql_data/
+
+# Node / Dashboard
+node_modules/
+dashboard/node_modules/
+dashboard/dist/
+
+# SQLite
+*.db
+
+# OS
+.DS_Store
+Thumbs.db
+
+# SonarQube
+.scannerwork/

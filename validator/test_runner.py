@@ -1,0 +1,142 @@
+"""
+테스트 실행 모듈 (validator/test_runner.py)
+
+LLM이 생성한 수정 코드를 임시로 적용하고 테스트를 실행하여
+기존 기능이 깨지지 않았는지 검증합니다.
+
+사용법:
+    from validator.test_runner import TestRunner
+
+    runner = TestRunner()
+    result = runner.run(patch, original_file_path="test_targets/sql_injection.py")
+"""
+
+import os
+import sys
+import shutil
+import tempfile
+import subprocess
+from dataclasses import dataclass
+from typing import Optional
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from shared.schemas import PatchSuggestion, PatchStatus
+
+
+@dataclass
+class TestResult:
+    """테스트 실행 결과"""
+    passed: bool
+    output: str = ""
+    error: str = ""
+    tests_run: int = 0
+    tests_failed: int = 0
+
+
+class TestRunner:
+    """LLM 생성 코드에 대한 테스트 실행기"""
+
+    def __init__(self, project_root: Optional[str] = None):
+        self.project_root = project_root or os.path.dirname(
+            os.path.dirname(os.path.abspath(__file__))
+        )
+
+    def run(
+        self,
+        patch: PatchSuggestion,
+        original_file_path: str,
+        test_dir: Optional[str] = None,
+    ) -> PatchSuggestion:
+        """
+        수정 코드를 임시 적용하고 테스트를 실행합니다.
+
+        1. 프로젝트를 임시 디렉토리에 복사
+        2. 원본 파일을 수정 코드로 교체
+        3. pytest 실행
+        4. 결과를 PatchSuggestion에 반영
+
+        Args:
+            patch: LLM이 생성한 수정안
+            original_file_path: 수정 대상 원본 파일 경로
+            test_dir: 테스트 디렉토리 (기본: tests/)
+
+        Returns:
+            테스트 결과가 반영된 PatchSuggestion
+        """
+        if not patch.fixed_code or not patch.fixed_code.strip():
+            patch.test_passed = False
+            patch.status = PatchStatus.FAILED
+            return patch
+
+        if not patch.syntax_valid:
+            patch.test_passed = False
+            return patch
+
+        result = self._run_in_sandbox(patch.fixed_code, original_file_path, test_dir)
+        patch.test_passed = result.passed
+
+        if result.passed:
+            if patch.status != PatchStatus.FAILED:
+                patch.status = PatchStatus.VERIFIED
+        else:
+            patch.status = PatchStatus.FAILED
+            patch.explanation += f"\n\n⚠️ 테스트 실패:\n{result.error or result.output}"
+
+        return patch
+
+    def _run_in_sandbox(
+        self,
+        fixed_code: str,
+        original_file_path: str,
+        test_dir: Optional[str] = None,
+    ) -> TestResult:
+        """임시 환경에서 수정 코드를 적용하고 테스트를 실행합니다."""
+        tmp_dir = tempfile.mkdtemp(prefix="dallo_test_")
+
+        try:
+            # 프로젝트 복사 (venv, .git 제외)
+            for item in os.listdir(self.project_root):
+                if item in ("venv", ".git", ".scannerwork", "__pycache__", "node_modules"):
+                    continue
+                src = os.path.join(self.project_root, item)
+                dst = os.path.join(tmp_dir, item)
+                if os.path.isdir(src):
+                    shutil.copytree(src, dst, ignore=shutil.ignore_patterns(
+                        "__pycache__", "*.pyc", ".git"
+                    ))
+                else:
+                    shutil.copy2(src, dst)
+
+            # 수정 코드 적용
+            target_file = os.path.join(tmp_dir, original_file_path)
+            if os.path.exists(target_file):
+                with open(target_file, "w", encoding="utf-8") as f:
+                    f.write(fixed_code)
+
+            # pytest 실행
+            test_path = os.path.join(tmp_dir, test_dir or "tests")
+            if not os.path.exists(test_path) or not os.listdir(test_path):
+                # 테스트 파일이 없으면 문법 검사만 통과한 것으로 간주
+                return TestResult(passed=True, output="테스트 파일 없음 - 문법 검사만 통과")
+
+            result = subprocess.run(
+                [sys.executable, "-m", "pytest", test_path, "-v", "--tb=short"],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                cwd=tmp_dir,
+            )
+
+            return TestResult(
+                passed=(result.returncode == 0),
+                output=result.stdout,
+                error=result.stderr,
+            )
+
+        except subprocess.TimeoutExpired:
+            return TestResult(passed=False, error="테스트 실행 시간 초과 (60초)")
+        except Exception as e:
+            return TestResult(passed=False, error=f"테스트 실행 오류: {str(e)}")
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)

@@ -1,0 +1,27 @@
+# === 정적 분석 ===
+bandit>=1.7.7
+
+# === LLM API 클라이언트 ===
+openai>=1.12.0
+google-generativeai>=0.4.0
+anthropic>=0.18.0
+
+# === GitHub 연동 ===
+PyGithub>=2.2.0
+requests>=2.31.0
+
+# === DB ===
+psycopg2-binary>=2.9.9
+sqlalchemy>=2.0.25
+alembic>=1.13.1
+
+# === 코드 검증 ===
+pytest>=8.0.0
+black>=24.1.0
+flake8>=7.0.0
+
+# === 유틸리티 ===
+python-dotenv>=1.0.0
+pyyaml>=6.0.1
+rich>=13.7.0          # CLI 출력 포맷팅
+jinja2>=3.1.3         # 코멘트 템플릿
