@@ -142,9 +142,9 @@ class ContextExtractor:
                 func_indent = len(lines[i]) - len(lines[i].lstrip())
                 break
 
-            # Java/C/C++/Go: public/private/protected/static/func + 여는 괄호
+            # 다중 언어: Java, JS, Go, C/C++, Kotlin, Rust, PHP, Swift, Ruby 등
             import re
-            if re.match(r'^(public|private|protected|static|func |function |const |let |var |async function )', stripped):
+            if re.match(r'^(public |private |protected |static |func |fn |fun |function |const |let |var |async function |void |int |char |bool |string |float |double |long |short )', stripped):
                 func_start = i
                 func_indent = len(lines[i]) - len(lines[i].lstrip())
                 break
