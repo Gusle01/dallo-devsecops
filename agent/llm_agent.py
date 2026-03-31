@@ -23,6 +23,7 @@ from typing import Optional
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from shared.schemas import VulnerabilityReport, PatchSuggestion, PatchStatus
+from shared.masking import DataMasker
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +87,7 @@ class DalloAgent:
         self._current_key_idx = 0
         self.api_key = self._api_keys[0]
         self._client = self._init_client()
+        self._masker = DataMasker()
 
         if len(self._api_keys) > 1:
             logger.info(f"API 키 {len(self._api_keys)}개 로드됨 (로테이션 활성화)")
@@ -124,12 +126,35 @@ class DalloAgent:
         Returns:
             PatchSuggestion: 수정된 코드 + 설명
         """
+        # 민감정보 마스킹 후 프롬프트 생성
+        code_to_mask = vuln.function_code or vuln.code_snippet or ""
+        mask_result = self._masker.mask(code_to_mask)
+        if mask_result.masked_count > 0:
+            logger.info(f"  민감정보 마스킹: {self._masker.get_summary(mask_result)}")
+            # 마스킹된 코드로 임시 교체
+            original_function = vuln.function_code
+            original_snippet = vuln.code_snippet
+            if vuln.function_code:
+                vuln.function_code = mask_result.masked_text
+            else:
+                vuln.code_snippet = mask_result.masked_text
+
         prompt = self._build_prompt(vuln)
+
+        # 원본 복원
+        if mask_result.masked_count > 0:
+            vuln.function_code = original_function
+            vuln.code_snippet = original_snippet
 
         for attempt in range(self.max_retries + 1):
             try:
                 response = self._call_llm(prompt)
                 fixed_code, explanation = self._parse_response(response)
+
+                # LLM 응답에서 마스킹 복원
+                if mask_result.masked_count > 0:
+                    fixed_code = self._masker.unmask(fixed_code, mask_result.mask_map)
+                    explanation = self._masker.unmask(explanation, mask_result.mask_map)
 
                 if not fixed_code.strip():
                     raise ValueError("LLM이 빈 코드를 반환했습니다.")
