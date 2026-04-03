@@ -18,10 +18,10 @@ export default function TypeChart({ data }) {
       padding: 24,
     }}>
       <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 20, color: '#e2e8f0' }}>
-        Vulnerabilities by Type
+        유형별 취약점 분포
       </h3>
       {chartData.length === 0 ? (
-        <div style={{ padding: 40, textAlign: 'center', color: '#64748b' }}>No data</div>
+        <div style={{ padding: 40, textAlign: 'center', color: '#64748b' }}>데이터 없음</div>
       ) : (
         <ResponsiveContainer width="100%" height={280}>
           <PieChart>

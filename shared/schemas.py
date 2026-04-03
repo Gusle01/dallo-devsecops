@@ -102,6 +102,7 @@ class PatchSuggestion:
     status: str = PatchStatus.PENDING  # 현재 상태
     syntax_valid: Optional[bool] = None     # 문법 검사 통과 여부
     test_passed: Optional[bool] = None      # 테스트 통과 여부
+    security_revalidation: Optional[dict] = None  # 보안 재검증 결과
     created_at: str = ""
     verified_at: Optional[str] = None
 

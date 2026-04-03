@@ -31,10 +31,10 @@ export default function VulnTable({ vulns }) {
     <div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
         <h2 style={{ fontSize: 18, fontWeight: 600 }}>
-          Vulnerabilities ({filtered.length})
+          취약점 목록 ({filtered.length}건)
         </h2>
         <div style={{ display: 'flex', gap: 8 }}>
-          {['ALL', 'HIGH', 'MEDIUM', 'LOW'].map(s => (
+          {[['ALL','전체'], ['HIGH','높음'], ['MEDIUM','중간'], ['LOW','낮음']].map(([s, label]) => (
             <button
               key={s}
               onClick={() => setFilter(s)}
@@ -48,7 +48,7 @@ export default function VulnTable({ vulns }) {
                 fontSize: 13,
               }}
             >
-              {s}
+              {label}
             </button>
           ))}
         </div>
@@ -63,7 +63,7 @@ export default function VulnTable({ vulns }) {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ borderBottom: '1px solid #334155' }}>
-              {['Severity', 'Rule', 'Title', 'File', 'Line', 'CWE'].map(h => (
+              {['심각도', '규칙', '제목', '파일', '라인', 'CWE'].map(h => (
                 <th key={h} style={{
                   padding: '12px 16px',
                   textAlign: 'left',
@@ -145,7 +145,7 @@ export default function VulnTable({ vulns }) {
 
         {filtered.length === 0 && (
           <div style={{ padding: 40, textAlign: 'center', color: '#64748b' }}>
-            No vulnerabilities found.
+            발견된 취약점이 없습니다.
           </div>
         )}
       </div>

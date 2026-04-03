@@ -190,7 +190,7 @@ export default function AnalyzeView({ onComplete }) {
   return (
     <div>
       <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 16 }}>
-        Code Analysis
+        코드 분석
       </h2>
 
       {/* 입력 영역 */}
@@ -232,7 +232,7 @@ export default function AnalyzeView({ onComplete }) {
               background: '#1e293b', color: '#94a3b8', cursor: 'pointer', fontSize: 13,
             }}
           >
-            Upload File
+            파일 업로드
           </button>
           <div style={{ position: 'relative' }}>
             <button
@@ -242,7 +242,7 @@ export default function AnalyzeView({ onComplete }) {
                 background: '#1e293b', color: '#94a3b8', cursor: 'pointer', fontSize: 13,
               }}
             >
-              Samples ▾
+              샘플 코드 ▾
             </button>
             {sampleMenu && (
               <div style={{
@@ -278,7 +278,7 @@ export default function AnalyzeView({ onComplete }) {
         <textarea
           value={code}
           onChange={e => setCode(e.target.value)}
-          placeholder="코드를 여기에 붙여넣거나 파일을 업로드하세요... (Python, Java, JavaScript, Go, C/C++ 등 지원)"
+          placeholder="코드를 여기에 붙여넣거나 파일을 업로드하세요...&#10;(Python, Java, JavaScript, Go, C/C++, Kotlin, Rust 등 14개+ 언어 지원)"
           style={{
             width: '100%',
             height: 320,
@@ -332,7 +332,7 @@ export default function AnalyzeView({ onComplete }) {
               cursor: status === 'polling' ? 'not-allowed' : 'pointer',
             }}
           >
-            {status === 'polling' ? '분석 중...' : '🔍 분석 시작'}
+            {status === 'polling' ? '분석 진행 중...' : '🔍 분석 시작'}
           </button>
         </div>
       </div>
@@ -368,6 +368,11 @@ export default function AnalyzeView({ onComplete }) {
         </div>
       )}
 
+      {/* 리포트 다운로드 */}
+      {status === 'completed' && (
+        <ReportBar />
+      )}
+
       {/* 결과 */}
       {status === 'completed' && result && (
         <ResultView result={result} />
@@ -400,12 +405,12 @@ function ResultView({ result }) {
         marginBottom: 20,
       }}>
         {[
-          { label: 'Total', value: summary.total || vulns.length, color: '#f8fafc' },
-          { label: 'HIGH', value: summary.high || 0, color: '#ef4444' },
-          { label: 'MEDIUM', value: summary.medium || 0, color: '#eab308' },
-          { label: 'LOW', value: summary.low || 0, color: '#3b82f6' },
-          { label: 'AI Patches', value: summary.patches_generated || 0, color: '#22c55e' },
-          { label: 'Verified', value: summary.patches_verified || 0, color: '#a855f7' },
+          { label: '전체', value: summary.total || vulns.length, color: '#f8fafc' },
+          { label: '높음', value: summary.high || 0, color: '#ef4444' },
+          { label: '중간', value: summary.medium || 0, color: '#eab308' },
+          { label: '낮음', value: summary.low || 0, color: '#3b82f6' },
+          { label: 'AI 수정안', value: summary.patches_generated || 0, color: '#22c55e' },
+          { label: '검증 통과', value: summary.patches_verified || 0, color: '#a855f7' },
         ].map((c, i) => (
           <div key={i} style={{
             background: '#1e293b', border: '1px solid #334155', borderRadius: 10,
@@ -422,7 +427,7 @@ function ResultView({ result }) {
           background: '#14532d', border: '1px solid #166534', borderRadius: 12,
           padding: 40, textAlign: 'center', fontSize: 16,
         }}>
-          ✅ 보안 취약점이 발견되지 않았습니다!
+          보안 취약점이 발견되지 않았습니다!
         </div>
       )}
 
@@ -460,10 +465,10 @@ function ResultView({ result }) {
             {vPatches.filter(p => p.fixed_code).map((patch, pi) => {
               const isVerified = patch.status && patch.status.toUpperCase().includes('VERIFIED')
               const typeLabel = {
-                minimal: '⚡ 최소 수정',
-                recommended: '✅ 권장 수정',
-                structural: '🏗️ 구조적 개선',
-              }[patch.fix_type] || '🤖 AI 수정안'
+                minimal: '최소 수정',
+                recommended: '권장 수정',
+                structural: '구조적 개선',
+              }[patch.fix_type] || 'AI 수정안'
               const typeColor = {
                 minimal: '#eab308',
                 recommended: '#3b82f6',
@@ -481,12 +486,12 @@ function ResultView({ result }) {
                     </span>
                     {patch.syntax_valid && (
                       <span style={{ fontSize: 11, padding: '3px 8px', background: '#22c55e15', color: '#22c55e', borderRadius: 6 }}>
-                        Syntax OK
+                        문법 통과
                       </span>
                     )}
                     {isVerified && (
                       <span style={{ fontSize: 11, padding: '3px 8px', background: '#22c55e15', color: '#22c55e', borderRadius: 6 }}>
-                        Verified
+                        검증됨
                       </span>
                     )}
                   </div>
@@ -505,14 +510,18 @@ function ResultView({ result }) {
                     color: '#86efac', border: '1px solid #14532d',
                   }}>{patch.fixed_code}</pre>
 
-                  <ApplyButton patch={patch} vuln={v} />
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10, flexWrap: 'wrap' }}>
+                    <DownloadCodeButton code={patch.fixed_code} filename={v.file_path || 'fixed_code.py'} fixType={patch.fix_type} />
+                    <CopyCodeButton code={patch.fixed_code} />
+                    <ApplyButton patch={patch} vuln={v} />
+                  </div>
                 </div>
               )
             })}
 
             {vPatches.length > 0 && vPatches.every(p => !p.fixed_code) && (
               <div style={{ marginTop: 8, fontSize: 12, color: '#ef4444' }}>
-                ❌ AI 수정안 생성 실패
+                AI 수정안 생성 실패
               </div>
             )}
           </div>
@@ -570,14 +579,14 @@ function ApplyButton({ patch, vuln }) {
 
   if (state === 'applied') {
     return (
-      <div style={{ marginTop: 10 }}>
+      <div style={{ width: '100%' }}>
         <div style={{
           padding: '10px 14px', background: '#14532d', borderRadius: 6,
           fontSize: 13, color: '#86efac', marginBottom: 8,
         }}>
           {prUrl ? (
             <>
-              ✅ PR 생성 완료 —{' '}
+              PR 생성 완료 —{' '}
               <a href={prUrl} target="_blank" rel="noopener noreferrer"
                  style={{ color: '#60a5fa', fontWeight: 600 }}>
                 Pull Request 보기
@@ -585,13 +594,13 @@ function ApplyButton({ patch, vuln }) {
               {branch && <span style={{ color: '#64748b', marginLeft: 8 }}>({branch})</span>}
             </>
           ) : (
-            <>✅ 수정안 적용 완료 {message && <span style={{ color: '#94a3b8' }}>— {message}</span>}</>
+            <>수정안 적용 완료 {message && <span style={{ color: '#94a3b8' }}>— {message}</span>}</>
           )}
         </div>
         {diff && (
           <details>
             <summary style={{ fontSize: 12, color: '#64748b', cursor: 'pointer', marginBottom: 4 }}>
-              Diff 보기
+              코드 변경사항 보기
             </summary>
             <pre style={{
               background: '#0f172a', padding: 12, borderRadius: 8,
@@ -607,11 +616,11 @@ function ApplyButton({ patch, vuln }) {
   if (state === 'github_form') {
     return (
       <div style={{
-        marginTop: 10, padding: 14, background: '#0f172a',
+        width: '100%', padding: 14, background: '#0f172a',
         borderRadius: 8, border: '1px solid #334155',
       }}>
         <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10, color: '#e2e8f0' }}>
-          GitHub 레포 연결
+          GitHub 저장소 연결
         </div>
         <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
           <input
@@ -654,7 +663,7 @@ function ApplyButton({ patch, vuln }) {
               fontWeight: 600,
             }}
           >
-            연결 + PR 생성
+            연결 후 PR 생성
           </button>
           <button
             onClick={() => setState(null)}
@@ -683,14 +692,14 @@ function ApplyButton({ patch, vuln }) {
           )}
         </div>
         <div style={{ fontSize: 11, color: '#64748b', marginTop: 6 }}>
-          연결 정보는 브라우저에만 저장됩니다. 서버로 전송되지 않습니다.
+          연결 정보는 브라우저에만 저장되며, 서버로 전송되지 않습니다.
         </div>
       </div>
     )
   }
 
   return (
-    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10 }}>
+    <>
       <button
         onClick={showGithubForm}
         disabled={state === 'loading'}
@@ -705,7 +714,7 @@ function ApplyButton({ patch, vuln }) {
           fontWeight: 500,
         }}
       >
-        {state === 'loading' ? '적용 중...' : ghRepo ? `✅ Apply to ${ghRepo}` : '✅ Apply to GitHub'}
+        {state === 'loading' ? '적용 중...' : ghRepo ? `${ghRepo}에 적용` : 'GitHub에 적용'}
       </button>
       {ghRepo && (
         <button
@@ -718,6 +727,124 @@ function ApplyButton({ patch, vuln }) {
           변경
         </button>
       )}
+    </>
+  )
+}
+
+
+function DownloadCodeButton({ code, filename, fixType }) {
+  const download = () => {
+    const ext = filename.includes('.') ? filename.split('.').pop() : 'py'
+    const base = filename.split('/').pop().replace(/\.\w+$/, '')
+    const downloadName = `${base}_${fixType || 'fixed'}.${ext}`
+    const blob = new Blob([code], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = downloadName
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  return (
+    <button
+      onClick={download}
+      style={{
+        padding: '7px 18px',
+        borderRadius: 6,
+        border: '1px solid #3b82f640',
+        background: '#1e3a5f',
+        color: '#60a5fa',
+        fontSize: 13,
+        cursor: 'pointer',
+        fontWeight: 500,
+      }}
+    >
+      코드 다운로드
+    </button>
+  )
+}
+
+
+function CopyCodeButton({ code }) {
+  const [copied, setCopied] = useState(false)
+
+  const copy = () => {
+    navigator.clipboard.writeText(code).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
+  return (
+    <button
+      onClick={copy}
+      style={{
+        padding: '7px 14px',
+        borderRadius: 6,
+        border: '1px solid #334155',
+        background: 'transparent',
+        color: copied ? '#22c55e' : '#94a3b8',
+        fontSize: 13,
+        cursor: 'pointer',
+        fontWeight: 500,
+      }}
+    >
+      {copied ? '복사됨!' : '복사'}
+    </button>
+  )
+}
+
+
+function ReportBar() {
+  const [loading, setLoading] = useState(false)
+
+  const openReport = async () => {
+    setLoading(true)
+    try {
+      const resp = await fetch(`${API}/api/report/preview`)
+      const data = await resp.json()
+      if (data.html) {
+        const w = window.open('', '_blank')
+        w.document.write(data.html)
+        w.document.close()
+      }
+    } catch (e) {
+      console.error('리포트 생성 실패:', e)
+    }
+    setLoading(false)
+  }
+
+  return (
+    <div style={{
+      background: '#1e293b',
+      border: '1px solid #334155',
+      borderRadius: 10,
+      padding: '14px 20px',
+      marginBottom: 16,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    }}>
+      <span style={{ fontSize: 14, fontWeight: 600, color: '#94a3b8' }}>
+        분석 리포트
+      </span>
+      <button
+        onClick={openReport}
+        disabled={loading}
+        style={{
+          padding: '6px 18px',
+          borderRadius: 6,
+          border: 'none',
+          background: loading ? '#334155' : '#3b82f6',
+          color: '#fff',
+          fontSize: 13,
+          fontWeight: 600,
+          cursor: loading ? 'wait' : 'pointer',
+        }}
+      >
+        {loading ? '생성 중...' : '리포트 보기 (새 탭)'}
+      </button>
     </div>
   )
 }

@@ -32,12 +32,12 @@ export default function StatsCards({ stats }) {
   if (!stats) return null
 
   const cards = [
-    { label: 'Total Issues', value: stats.total_issues, color: '#f8fafc', icon: '🔍' },
-    { label: 'HIGH', value: stats.high, color: '#ef4444', icon: '🔴' },
-    { label: 'MEDIUM', value: stats.medium, color: '#eab308', icon: '🟡' },
-    { label: 'LOW', value: stats.low, color: '#3b82f6', icon: '🔵' },
-    { label: 'Patches Generated', value: stats.patches_generated, color: '#22c55e', icon: '🤖' },
-    { label: 'Verified', value: stats.patches_verified, color: '#a855f7', icon: '✅' },
+    { label: '전체 취약점', value: stats.total_issues, color: '#f8fafc', icon: '🔍' },
+    { label: '높음 (HIGH)', value: stats.high, color: '#ef4444', icon: '🔴' },
+    { label: '중간 (MEDIUM)', value: stats.medium, color: '#eab308', icon: '🟡' },
+    { label: '낮음 (LOW)', value: stats.low, color: '#3b82f6', icon: '🔵' },
+    { label: 'AI 수정안 생성', value: stats.patches_generated, color: '#22c55e', icon: '🤖' },
+    { label: '검증 통과', value: stats.patches_verified, color: '#a855f7', icon: '✅' },
   ]
 
   return (

@@ -352,6 +352,21 @@ def _run_analysis(job_id: str, code: str, filename: str, use_llm: bool, provider
             for p in patches:
                 checker.check(p, language=lang)
 
+        # Step 5: 보안 재검증 (수정 코드에 Bandit/Semgrep 재실행)
+        if patches:
+            analysis_jobs[job_id]["step"] = "보안 재검증 중 (수정 코드 보안 스캔)..."
+            from validator.security_checker import SecurityChecker
+            sec_checker = SecurityChecker()
+            for p in patches:
+                if p.status != PatchStatus.FAILED:
+                    # 원본 코드 찾기
+                    orig = ""
+                    for vr in vuln_reports:
+                        if vr.id == p.vulnerability_id:
+                            orig = vr.function_code or vr.code_snippet or ""
+                            break
+                    sec_checker.check(p, language=lang, filename=filename, original_code=orig)
+
         # 결과 조립
         elapsed = time.time() - start_time
         session = AnalysisSession(
@@ -378,6 +393,19 @@ def _run_analysis(job_id: str, code: str, filename: str, use_llm: bool, provider
             db_service.save_analysis(result_data)
         except Exception as e:
             analysis_jobs[job_id]["db_error"] = str(e)
+
+        # Step 6: 리포트 자동 생성
+        analysis_jobs[job_id]["step"] = "리포트 생성 중..."
+        try:
+            from reports.report_generator import ReportGenerator
+            report_gen = ReportGenerator()
+            report_files = report_gen.save_report(result_data, output_dir=REPORTS_DIR, fmt="both")
+            analysis_jobs[job_id]["report_files"] = {
+                k: f"/api/report/download/{os.path.basename(v)}"
+                for k, v in report_files.items()
+            }
+        except Exception as e:
+            analysis_jobs[job_id]["report_error"] = str(e)
 
         analysis_jobs[job_id]["status"] = "completed"
         analysis_jobs[job_id]["result"] = result_data
@@ -598,6 +626,144 @@ async def analyze_file(file: UploadFile = File(...), use_llm: bool = Form(True))
     t.start()
 
     return {"job_id": job_id, "status": "queued"}
+
+
+# ============================================================
+# 리포트 생성 API
+# ============================================================
+
+@app.get("/api/report/generate")
+def generate_report(
+    fmt: str = Query("html", description="md, html, both"),
+    session_id: Optional[str] = Query(None, description="세션 ID (없으면 최신)"),
+    include_deps: bool = Query(False, description="의존성 스캔 포함"),
+):
+    """분석 리포트를 생성하고 다운로드 경로를 반환합니다."""
+    from reports.report_generator import ReportGenerator
+
+    # 데이터 로드
+    if session_id:
+        data = db_service.get_analysis_by_session(session_id)
+    else:
+        data = db_service.get_latest_analysis()
+
+    if not data:
+        full = load_full_result()
+        if not full:
+            return {"error": "분석 데이터가 없습니다. 먼저 코드 분석을 실행하세요."}
+        data = full
+
+    # 의존성 스캔 포함
+    deps_data = None
+    if include_deps:
+        try:
+            from analyzer.dependency_scanner import DependencyScanner
+            scanner = DependencyScanner()
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            deps_data = {"results": [r.to_dict() for r in scanner.scan(project_root)]}
+        except Exception:
+            pass
+
+    gen = ReportGenerator()
+    result = gen.save_report(data, output_dir=REPORTS_DIR, fmt=fmt, include_deps=deps_data)
+
+    return {
+        "status": "generated",
+        "files": result,
+        "download_urls": {
+            k: f"/api/report/download/{os.path.basename(v)}"
+            for k, v in result.items()
+        },
+    }
+
+
+@app.get("/api/report/download/{filename}")
+def download_report(filename: str):
+    """생성된 리포트 파일을 다운로드합니다."""
+    safe_name = filename.replace("/", "_").replace("\\", "_")
+    path = os.path.join(REPORTS_DIR, safe_name)
+    if not os.path.exists(path):
+        return {"error": "리포트 파일을 찾을 수 없습니다."}
+
+    media_type = "text/html" if path.endswith(".html") else "text/markdown"
+    return FileResponse(path, media_type=media_type, filename=safe_name)
+
+
+@app.get("/api/report/preview")
+def preview_report(
+    session_id: Optional[str] = Query(None),
+    include_deps: bool = Query(False),
+):
+    """리포트를 생성하고 HTML 내용을 바로 반환합니다 (미리보기)."""
+    from reports.report_generator import ReportGenerator
+
+    if session_id:
+        data = db_service.get_analysis_by_session(session_id)
+    else:
+        data = db_service.get_latest_analysis()
+
+    if not data:
+        full = load_full_result()
+        if not full:
+            return {"error": "분석 데이터가 없습니다."}
+        data = full
+
+    deps_data = None
+    if include_deps:
+        try:
+            from analyzer.dependency_scanner import DependencyScanner
+            scanner = DependencyScanner()
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            deps_data = {"results": [r.to_dict() for r in scanner.scan(project_root)]}
+        except Exception:
+            pass
+
+    gen = ReportGenerator()
+    html = gen.generate_html(data, deps_data)
+    md = gen.generate_markdown(data, deps_data)
+
+    return {"html": html, "markdown": md}
+
+
+# ============================================================
+# 의존성 취약점 분석 API
+# ============================================================
+
+class DependencyScanRequest(BaseModel):
+    requirements_text: str = ""      # requirements.txt 내용
+    package_json_text: str = ""      # package.json 내용
+    project_path: str = ""           # 프로젝트 경로 (서버 로컬)
+
+
+@app.post("/api/dependencies/scan")
+def scan_dependencies(req: DependencyScanRequest):
+    """의존성 취약점을 스캔합니다."""
+    from analyzer.dependency_scanner import DependencyScanner
+    scanner = DependencyScanner()
+
+    results = []
+    if req.requirements_text:
+        results.append(scanner.scan_requirements_text(req.requirements_text).to_dict())
+    elif req.package_json_text:
+        results.append(scanner.scan_package_json_text(req.package_json_text).to_dict())
+    elif req.project_path and os.path.exists(req.project_path):
+        results = [r.to_dict() for r in scanner.scan(req.project_path)]
+    else:
+        # 현재 프로젝트 스캔
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        results = [r.to_dict() for r in scanner.scan(project_root)]
+
+    return {"results": results}
+
+
+@app.get("/api/dependencies")
+def get_dependencies():
+    """현재 프로젝트의 의존성 스캔 결과를 반환합니다."""
+    from analyzer.dependency_scanner import DependencyScanner
+    scanner = DependencyScanner()
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    results = [r.to_dict() for r in scanner.scan(project_root)]
+    return {"results": results}
 
 
 # ============================================================

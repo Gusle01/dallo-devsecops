@@ -6,6 +6,8 @@ import TypeChart from './components/TypeChart'
 import PatchView from './components/PatchView'
 import AnalyzeView from './components/AnalyzeView'
 import HistoryView from './components/HistoryView'
+import DependencyView from './components/DependencyView'
+import ReportView from './components/ReportView'
 
 const API = window.location.port === '5173' ? '/api' : `${window.location.origin}/api`
 
@@ -37,7 +39,7 @@ export default function App() {
         setLoading(false)
       })
       .catch(e => {
-        setError(`API 연결 실패: ${e.message}. FastAPI 서버가 실행 중인지 확인하세요.`)
+        setError(`API 연결 실패: ${e.message}. FastAPI 서버가 실행 중인지 확인해주세요.`)
         setLoading(false)
       })
   }, [])
@@ -59,11 +61,13 @@ export default function App() {
   }
 
   const tabs = [
-    { id: 'analyze', label: '🔍 Analyze' },
-    { id: 'dashboard', label: 'Dashboard' },
-    { id: 'vulns', label: 'Vulnerabilities' },
-    { id: 'patches', label: 'AI Patches' },
-    { id: 'history', label: '📋 History' },
+    { id: 'analyze', label: '🔍 코드 분석' },
+    { id: 'dashboard', label: '📊 대시보드' },
+    { id: 'vulns', label: '🛡️ 취약점 목록' },
+    { id: 'patches', label: '🤖 AI 수정안' },
+    { id: 'deps', label: '📦 의존성 검사' },
+    { id: 'report', label: '📋 리포트' },
+    { id: 'history', label: '🕐 분석 이력' },
   ]
 
   return (
@@ -120,7 +124,7 @@ export default function App() {
 
         {loading ? (
           <div style={{ textAlign: 'center', padding: 80, color: '#64748b' }}>
-            Loading...
+            불러오는 중...
           </div>
         ) : (
           <>
@@ -138,6 +142,8 @@ export default function App() {
             )}
             {tab === 'vulns' && <VulnTable vulns={vulns} />}
             {tab === 'patches' && <PatchView patches={patches} />}
+            {tab === 'deps' && <DependencyView />}
+            {tab === 'report' && <ReportView />}
             {tab === 'history' && <HistoryView />}
           </>
         )}
