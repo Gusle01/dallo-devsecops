@@ -258,7 +258,7 @@ export default function ReportView() {
     <div class="meta">
       <span>report <strong>${issueId}</strong></span>
       <span>generated <strong>${dateStr}</strong></span>
-      <span>llm <strong>gemini-3.1-flash</strong></span>
+      <span>llm <strong>gemini-2.0-flash-lite</strong></span>
       <span>build <strong>v0.4.1</strong></span>
     </div>
   </header>

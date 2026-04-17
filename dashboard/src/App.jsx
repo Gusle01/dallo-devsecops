@@ -156,7 +156,7 @@ export default function App() {
             <div className="masthead__meta">
               <div>uptime <strong>{Math.floor((now - new Date(now.getFullYear(), now.getMonth(), now.getDate())) / 1000 / 60)}m</strong></div>
               <div>build <strong>2026.04.09</strong></div>
-              <div>llm <strong>gemini-3.1-flash</strong></div>
+              <div>llm <strong>gemini-2.0-flash-lite</strong></div>
               <div>tty <strong>/dev/dallo</strong></div>
             </div>
           </div>

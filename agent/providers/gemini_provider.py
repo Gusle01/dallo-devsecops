@@ -12,7 +12,7 @@ from agent.providers.base import SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "gemini-3.1-flash-lite-preview"
+DEFAULT_MODEL = "gemini-2.0-flash-lite"
 
 
 class GeminiProvider:

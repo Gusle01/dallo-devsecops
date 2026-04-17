@@ -15,7 +15,7 @@ from api.celery_app import celery_app
 
 @celery_app.task(bind=True, name="dallo.analyze")
 def run_analysis_task(self, code: str, filename: str, use_llm: bool = True,
-                      provider: str = "gemini", model: str = "gemini-3.1-flash-lite-preview",
+                      provider: str = "gemini", model: str = "gemini-2.0-flash-lite",
                       multi_patch: bool = False):
     """
     Celery task: 분석 파이프라인 실행

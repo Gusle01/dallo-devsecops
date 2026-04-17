@@ -37,7 +37,7 @@ def execute_pipeline(
     filename: str,
     use_llm: bool = True,
     provider: str = "gemini",
-    model: str = "gemini-3.1-flash-lite-preview",
+    model: str = "gemini-2.0-flash-lite",
     multi_patch: bool = False,
     on_progress: Optional[Callable[[str], None]] = None,
 ) -> PipelineResult:

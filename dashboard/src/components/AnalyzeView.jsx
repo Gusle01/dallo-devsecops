@@ -508,7 +508,7 @@ export default function AnalyzeView({ onComplete }) {
           use_llm: useLlm,
           multi_patch: multiPatch,
           provider: 'gemini',
-          model: 'gemini-3.1-flash-lite-preview',
+          model: 'gemini-2.0-flash-lite',
         }),
       })
       const data = await resp.json()
