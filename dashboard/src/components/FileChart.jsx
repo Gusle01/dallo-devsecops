@@ -1,40 +1,78 @@
 import React from 'react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid } from 'recharts'
+import { SEVERITY, COLORS } from '../colors'
+
+const tt = {
+  background: COLORS.bgDeep,
+  border: `1px solid ${COLORS.phosphor}`,
+  borderRadius: 0,
+  boxShadow: 'none',
+  padding: '8px 12px',
+  fontSize: 11,
+  fontFamily: 'JetBrains Mono, monospace',
+  color: COLORS.ink,
+  textTransform: 'uppercase',
+  letterSpacing: '0.04em',
+}
 
 export default function FileChart({ data }) {
   const chartData = data.map(d => ({
     name: d.file.split('/').pop(),
     HIGH: d.high,
-    MEDIUM: d.medium,
+    MED: d.medium,
     LOW: d.low,
   }))
 
   return (
-    <div style={{
-      background: '#1e293b',
-      border: '1px solid #334155',
-      borderRadius: 12,
-      padding: 24,
-    }}>
-      <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 20, color: '#e2e8f0' }}>
-        파일별 취약점 분포
-      </h3>
+    <div className="glass glass-card">
+      <div style={{ marginBottom: 18 }}>
+        <span className="chapter-label">FIG.01</span>
+        <h3 className="section-title">findings_per_file</h3>
+        <p className="text-subtitle"># count by source path</p>
+      </div>
+
       {chartData.length === 0 ? (
-        <div style={{ padding: 40, textAlign: 'center', color: '#64748b' }}>데이터 없음</div>
+        <div className="empty-state" style={{ padding: 60 }}>
+          <div className="empty-state__description">no data on file</div>
+        </div>
       ) : (
-        <ResponsiveContainer width="100%" height={280}>
-          <BarChart data={chartData} margin={{ left: -10 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-            <XAxis dataKey="name" tick={{ fill: '#94a3b8', fontSize: 11 }} angle={-20} textAnchor="end" height={60} />
-            <YAxis tick={{ fill: '#94a3b8', fontSize: 12 }} allowDecimals={false} />
-            <Tooltip
-              contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8 }}
-              labelStyle={{ color: '#e2e8f0' }}
+        <ResponsiveContainer width="100%" height={300}>
+          <BarChart data={chartData} margin={{ left: -10, right: 8, top: 8 }}>
+            <CartesianGrid strokeDasharray="2 2" stroke={COLORS.rule} vertical={false} />
+            <XAxis
+              dataKey="name"
+              tick={{ fill: COLORS.inkDim, fontSize: 10, fontFamily: 'JetBrains Mono, monospace' }}
+              angle={-18}
+              textAnchor="end"
+              height={64}
+              axisLine={{ stroke: COLORS.ruleHot }}
+              tickLine={{ stroke: COLORS.ruleHot }}
             />
-            <Legend wrapperStyle={{ fontSize: 12 }} />
-            <Bar dataKey="HIGH" fill="#ef4444" radius={[4, 4, 0, 0]} />
-            <Bar dataKey="MEDIUM" fill="#eab308" radius={[4, 4, 0, 0]} />
-            <Bar dataKey="LOW" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+            <YAxis
+              tick={{ fill: COLORS.inkDim, fontSize: 10, fontFamily: 'JetBrains Mono, monospace' }}
+              allowDecimals={false}
+              axisLine={{ stroke: COLORS.ruleHot }}
+              tickLine={{ stroke: COLORS.ruleHot }}
+            />
+            <Tooltip
+              contentStyle={tt}
+              labelStyle={{ color: COLORS.phosphor, fontWeight: 700, fontFamily: 'JetBrains Mono, monospace' }}
+              cursor={{ fill: 'rgba(158, 255, 125, 0.06)' }}
+            />
+            <Legend
+              wrapperStyle={{
+                fontSize: 10,
+                paddingTop: 12,
+                fontFamily: 'JetBrains Mono, monospace',
+                color: COLORS.inkDim,
+                textTransform: 'uppercase',
+                letterSpacing: '0.14em',
+              }}
+              iconType="square"
+            />
+            <Bar dataKey="HIGH" fill={SEVERITY.HIGH}   animationDuration={500} animationBegin={0} />
+            <Bar dataKey="MED"  fill={SEVERITY.MEDIUM} animationDuration={500} animationBegin={120} />
+            <Bar dataKey="LOW"  fill={SEVERITY.LOW}    animationDuration={500} animationBegin={240} />
           </BarChart>
         </ResponsiveContainer>
       )}

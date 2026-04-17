@@ -47,6 +47,22 @@
 └─────────────────────────────────────────────────────────┘
 ```
 
+## Security Notice
+
+> **암호화 키 관리**: DB 코드 스니펫은 AES-256으로 암호화됩니다.
+> 암호화 키는 반드시 환경변수(`DALLO_ENCRYPTION_KEY`)로 설정해야 하며,
+> 소스 코드에 하드코딩하면 안 됩니다.
+>
+> ```bash
+> # 키 생성
+> python scripts/generate_encryption_key.py
+> # 출력된 키를 .env 파일에 설정
+> ```
+>
+> **경고**: 이전 커밋 히스토리에 개발용 기본 키(`dallo-devsecops-default-key-*`)가
+> 포함되어 있습니다. 운영 환경에서는 반드시 새 키를 생성하여 사용하고,
+> 기존 데이터는 새 키로 재암호화(키 로테이션)하세요.
+
 ## Quick Start
 
 ```bash
@@ -66,6 +82,18 @@ cp .env.example .env
 # 4. 원클릭 실행
 python start.py
 ```
+
+### Celery Worker (선택사항 — Redis 필요)
+
+```bash
+# Redis 실행 (Docker)
+docker run -d --name dallo-redis -p 6379:6379 redis:7-alpine
+
+# Celery worker 실행 (별도 터미널)
+celery -A api.celery_app worker --loglevel=info
+```
+
+> Redis가 없으면 자동으로 메모리 기반 fallback으로 동작합니다.
 
 서버가 시작되면:
 - **대시보드**: http://localhost:8000/dashboard

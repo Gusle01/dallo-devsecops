@@ -2,6 +2,7 @@
 import pytest
 import sys
 import os
+from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -78,3 +79,32 @@ class TestBanditRunner:
         """run_bandit_analysis 편의 함수 테스트"""
         result = run_bandit_analysis("test_targets/sql_injection.py")
         assert result.total_issues > 0
+
+    def test_parses_output_with_progress_bar(self):
+        """stdout 앞에 progress bar가 섞여도 JSON 파싱이 성공하는지"""
+        runner = BanditRunner()
+        # progress bar + 유효 JSON
+        noisy_stdout = (
+            'Working... \u2501\u2501\u2501\u2501 100% 0:00:00\n'
+            '{"results": [{"test_id": "B608", "test_name": "hardcoded_sql", '
+            '"issue_severity": "HIGH", "issue_confidence": "HIGH", '
+            '"issue_text": "test", "filename": "test.py", "line_number": 1, '
+            '"code": "x=1", "more_info": ""}], '
+            '"metrics": {"_totals": {"SEVERITY.HIGH": 1, "SEVERITY.MEDIUM": 0, "SEVERITY.LOW": 0}}}'
+        )
+        parsed = runner._parse_json_output(noisy_stdout)
+        assert len(parsed["results"]) == 1
+        assert parsed["results"][0]["test_id"] == "B608"
+
+    def test_uses_quiet_flag(self):
+        """subprocess 호출 시 -q 플래그가 포함되는지"""
+        runner = BanditRunner()
+        with patch("analyzer.bandit_runner.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                stdout='{"results": [], "metrics": {"_totals": {}}}',
+                stderr="",
+                returncode=0,
+            )
+            runner.run("test_targets/")
+            called_cmd = mock_run.call_args[0][0]
+            assert "-q" in called_cmd, f"-q 플래그 누락: {called_cmd}"

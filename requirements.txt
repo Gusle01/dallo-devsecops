@@ -24,6 +24,17 @@ psycopg2-binary>=2.9.9
 pytest>=8.0.0
 httpx>=0.24.0
 
+# === 비동기 작업 큐 ===
+celery>=5.3.0
+redis>=5.0.0
+
+# === 민감정보 탐지 ===
+presidio-analyzer>=2.2.0
+presidio-anonymizer>=2.2.0
+
+# === 암호화 ===
+cryptography>=42.0.0
+
 # === 유틸리티 ===
 python-dotenv>=1.0.0
 pyyaml>=6.0.1

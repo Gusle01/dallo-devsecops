@@ -4,12 +4,13 @@ LLM 에이전트 (agent/llm_agent.py)
 정적 분석 결과(VulnerabilityReport)를 받아서
 LLM에 전달하고, 수정안(PatchSuggestion)을 반환합니다.
 
-지원 프로바이더: openai, gemini, anthropic
+메인 프로바이더: Gemini (무료 API 키 로테이션, 비용 효율)
+기타 프로바이더(OpenAI, Anthropic)는 agent/providers/로 이동하여 비활성화 상태로 보존.
 
 사용법:
   from agent.llm_agent import DalloAgent
 
-  agent = DalloAgent(api_key="...", model="gpt-4o", provider="openai")
+  agent = DalloAgent(provider="gemini")  # 기본값
   patches = agent.generate_patches(vulnerabilities)
 """
 
@@ -24,31 +25,18 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from shared.schemas import VulnerabilityReport, PatchSuggestion, PatchStatus
 from shared.masking import DataMasker
+from agent.provider_factory import get_provider
+from agent.providers.base import LLMProvider, SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 
 
-# 프로바이더별 기본 모델
-DEFAULT_MODELS = {
-    "openai": "gpt-4o",
-    "gemini": "gemini-3.1-flash-lite-preview",
-    "anthropic": "claude-sonnet-4-20250514",
-}
-
-# 프로바이더별 환경변수 키
-API_KEY_ENV = {
-    "openai": "OPENAI_API_KEY",
-    "gemini": "GEMINI_API_KEY",
-    "anthropic": "ANTHROPIC_API_KEY",
-}
-
-
 class DalloAgent:
     """
-    LLM 기반 코드 분석 및 리팩토링 에이전트
+    LLM 기반 코드 분석 및 리팩토링 에이전트 (Facade)
 
-    3개 프로바이더(OpenAI, Gemini, Anthropic)를 지원하며,
-    취약점 정보를 받아 수정 코드와 설명을 생성합니다.
+    Provider 인터페이스를 통해 LLM을 호출합니다.
+    프롬프트 구성, 응답 파싱, 민감정보 마스킹, 재시도 로직을 담당합니다.
     """
 
     def __init__(
@@ -56,65 +44,24 @@ class DalloAgent:
         api_key: Optional[str] = None,
         api_keys: Optional[list[str]] = None,
         model: Optional[str] = None,
-        provider: str = "openai",
+        provider: str = None,
         max_retries: int = 2,
         temperature: float = 0.2,
     ):
-        self.provider = provider.lower()
-        if self.provider not in DEFAULT_MODELS:
-            raise ValueError(f"지원하지 않는 프로바이더: {provider}. (openai/gemini/anthropic)")
-
-        self.model = model or DEFAULT_MODELS[self.provider]
         self.max_retries = max_retries
-        self.temperature = temperature
-
-        # 멀티 API 키 지원 (로테이션)
-        if api_keys:
-            self._api_keys = [k for k in api_keys if k.strip()]
-        elif api_key:
-            self._api_keys = [api_key]
-        else:
-            env_val = os.environ.get(API_KEY_ENV[self.provider], "")
-            # 쉼표로 여러 키를 설정할 수 있음: KEY1,KEY2
-            self._api_keys = [k.strip() for k in env_val.split(",") if k.strip()]
-
-        if not self._api_keys:
-            raise ValueError(
-                f"API 키가 필요합니다. {API_KEY_ENV[self.provider]} 환경변수를 설정하거나 "
-                f"api_key/api_keys 파라미터를 전달하세요."
-            )
-
-        self._current_key_idx = 0
-        self.api_key = self._api_keys[0]
-        self._client = self._init_client()
         self._masker = DataMasker()
 
-        if len(self._api_keys) > 1:
-            logger.info(f"API 키 {len(self._api_keys)}개 로드됨 (로테이션 활성화)")
-
-    def _rotate_key(self):
-        """다음 API 키로 전환합니다."""
-        if len(self._api_keys) <= 1:
-            return False
-        self._current_key_idx = (self._current_key_idx + 1) % len(self._api_keys)
-        self.api_key = self._api_keys[self._current_key_idx]
-        self._client = self._init_client()
-        logger.info(f"API 키 전환 → 키 #{self._current_key_idx + 1}")
-        return True
-
-    def _init_client(self):
-        """프로바이더별 클라이언트 초기화"""
-        if self.provider == "openai":
-            from openai import OpenAI
-            return OpenAI(api_key=self.api_key)
-
-        elif self.provider == "gemini":
-            from google import genai
-            return genai.Client(api_key=self.api_key)
-
-        elif self.provider == "anthropic":
-            from anthropic import Anthropic
-            return Anthropic(api_key=self.api_key)
+        # Provider Factory를 통해 프로바이더 인스턴스 생성
+        self._provider: LLMProvider = get_provider(
+            name=provider,
+            api_key=api_key,
+            api_keys=api_keys,
+            model=model,
+            temperature=temperature,
+        )
+        self.provider = (provider or "gemini").lower()
+        self.model = self._provider.model
+        self.temperature = self._provider.temperature
 
     def generate_patch(self, vuln: VulnerabilityReport) -> PatchSuggestion:
         """
@@ -148,7 +95,7 @@ class DalloAgent:
 
         for attempt in range(self.max_retries + 1):
             try:
-                response = self._call_llm(prompt)
+                response = self._provider.call(prompt, system=SYSTEM_PROMPT)
                 fixed_code, explanation = self._parse_response(response)
 
                 # LLM 응답에서 마스킹 복원
@@ -172,7 +119,7 @@ class DalloAgent:
 
                 # Rate limit 감지 시 키 전환 또는 대기
                 if "429" in err_str or "quota" in err_str.lower():
-                    if self._rotate_key():
+                    if self._provider.rotate_key():
                         logger.info(f"  Rate limit → 다른 API 키로 전환")
                     else:
                         wait = self._extract_retry_delay(err_str)
@@ -210,7 +157,7 @@ class DalloAgent:
 
         for attempt in range(self.max_retries + 1):
             try:
-                response = self._call_llm(prompt)
+                response = self._provider.call(prompt, system=SYSTEM_PROMPT)
                 patches = self._parse_multi_response(response, vuln.id)
 
                 if not patches:
@@ -222,7 +169,7 @@ class DalloAgent:
                 logger.warning(f"[시도 {attempt+1}/{self.max_retries+1}] 다중 수정안 생성 실패: {e}")
 
                 if "429" in err_str or "quota" in err_str.lower():
-                    if self._rotate_key():
+                    if self._provider.rotate_key():
                         logger.info(f"  Rate limit → 다른 API 키로 전환")
                     else:
                         wait = self._extract_retry_delay(err_str)
@@ -433,44 +380,6 @@ class DalloAgent:
                 cleaned.append(line)
         return "\n".join(cleaned)
 
-    def _call_llm(self, prompt: str) -> str:
-        """프로바이더별 LLM API를 호출하고 텍스트 응답을 반환합니다."""
-        if self.provider == "openai":
-            response = self._client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": "당신은 보안 코드 리뷰 전문가입니다. 다양한 프로그래밍 언어의 보안 취약점을 분석하고 수정된 코드를 제공합니다."},
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=self.temperature,
-                max_tokens=2048,
-            )
-            return response.choices[0].message.content
-
-        elif self.provider == "gemini":
-            from google.genai import types
-            response = self._client.models.generate_content(
-                model=self.model,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    temperature=self.temperature,
-                    max_output_tokens=2048,
-                ),
-            )
-            return response.text
-
-        elif self.provider == "anthropic":
-            response = self._client.messages.create(
-                model=self.model,
-                max_tokens=2048,
-                temperature=self.temperature,
-                system="당신은 보안 코드 리뷰 전문가입니다. 다양한 프로그래밍 언어의 보안 취약점을 분석하고 수정된 코드를 제공합니다.",
-                messages=[
-                    {"role": "user", "content": prompt},
-                ],
-            )
-            return response.content[0].text
-
     def _parse_response(self, response: str) -> tuple[str, str]:
         """
         LLM 응답에서 수정 코드와 설명을 추출합니다.
@@ -535,7 +444,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Dallo LLM Agent 테스트")
-    parser.add_argument("--provider", default="openai", choices=["openai", "gemini", "anthropic"])
+    parser.add_argument("--provider", default="gemini", choices=["gemini", "openai", "anthropic"])
     parser.add_argument("--model", default=None)
     parser.add_argument("--api-key", default=None)
     args = parser.parse_args()

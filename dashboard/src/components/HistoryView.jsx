@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend, LineChart, Line } from 'recharts'
+import { SEVERITY, COLORS, STATUS } from '../colors'
+import { apiFetch } from '../api/client'
 
 const API = window.location.origin
 
@@ -10,7 +12,7 @@ export default function HistoryView() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetch(`${API}/api/sessions`)
+    apiFetch(`${API}/api/sessions`)
       .then(r => r.json())
       .then(d => {
         setSessions(d.sessions || [])
@@ -27,7 +29,7 @@ export default function HistoryView() {
     }
     setSelected(sessionId)
     try {
-      const r = await fetch(`${API}/api/sessions/${sessionId}`)
+      const r = await apiFetch(`${API}/api/sessions/${sessionId}`)
       const d = await r.json()
       setDetail(d)
     } catch {
@@ -47,74 +49,104 @@ export default function HistoryView() {
   }))
 
   if (loading) {
-    return <div style={{ padding: 60, textAlign: 'center', color: '#64748b' }}>불러오는 중...</div>
+    return (
+      <div style={{
+        padding: 80,
+        textAlign: 'center',
+        color: 'var(--ink-dim)',
+        fontFamily: 'var(--font-mono)',
+        fontSize: 11,
+        textTransform: 'uppercase',
+        letterSpacing: '0.14em',
+      }}>
+        $ tail -f /var/log/dallo
+      </div>
+    )
   }
 
   return (
     <div>
-      <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 20 }}>
-        분석 이력 ({sessions.length}개 세션)
-      </h2>
+      <div className="page-header">
+        <h1 className="page-title">
+          <em>$</em>&nbsp;log <span style={{ color: 'var(--ink-faint)' }}>--all</span>
+        </h1>
+        <p className="page-subtitle">
+          {sessions.length} prior session(s) on file · ordered chronologically
+        </p>
+      </div>
 
       {/* 트렌드 차트 */}
       {sessions.length > 1 && (
-        <div style={{
-          display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 24,
-        }}>
-          {/* 취약점 추이 */}
-          <div style={{
-            background: '#1e293b', border: '1px solid #334155', borderRadius: 12, padding: 20,
-          }}>
-            <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, color: '#94a3b8' }}>
-              취약점 추이
-            </h3>
+        <div className="history-trend-grid">
+          <div className="glass glass-card">
+            <div style={{ marginBottom: 18 }}>
+              <span className="chapter-label">FIG.01</span>
+              <h3 className="section-title">findings_over_time</h3>
+              <p className="text-subtitle"># trend by session</p>
+            </div>
             <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={trendData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                <XAxis dataKey="name" tick={{ fill: '#94a3b8', fontSize: 11 }} />
-                <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} allowDecimals={false} />
-                <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8 }} />
-                <Bar dataKey="high" fill="#ef4444" name="HIGH" stackId="a" />
-                <Bar dataKey="medium" fill="#eab308" name="MEDIUM" stackId="a" />
-                <Bar dataKey="low" fill="#3b82f6" name="LOW" stackId="a" />
+              <BarChart data={trendData} animationDuration={600}>
+                <CartesianGrid strokeDasharray="0" stroke={COLORS.rule} vertical={false} />
+                <XAxis dataKey="name" tick={{ fill: COLORS.inkMute, fontSize: 11, fontFamily: 'Newsreader, serif', fontStyle: 'italic' }} axisLine={{ stroke: COLORS.ink }} tickLine={{ stroke: COLORS.ink }} />
+                <YAxis tick={{ fill: COLORS.inkMute, fontSize: 11, fontFamily: 'Newsreader, serif' }} allowDecimals={false} axisLine={{ stroke: COLORS.ink }} tickLine={{ stroke: COLORS.ink }} />
+                <Tooltip
+                  contentStyle={{
+                    background: COLORS.paperHi,
+                    border: `1px solid ${COLORS.ink}`,
+                    borderRadius: 0,
+                    boxShadow: '0 2px 0 rgba(26,24,21,0.1), 0 8px 24px rgba(26,24,21,0.08)',
+                    padding: '10px 14px',
+                    fontSize: 12,
+                    fontFamily: 'Newsreader, Georgia, serif',
+                    color: COLORS.ink,
+                  }}
+                  cursor={{ fill: 'rgba(26,24,21,0.05)' }}
+                />
+                <Bar dataKey="high" fill={SEVERITY.HIGH} name="HIGH" stackId="a" radius={[0, 0, 0, 0]} animationBegin={0} />
+                <Bar dataKey="medium" fill={SEVERITY.MEDIUM} name="MEDIUM" stackId="a" animationBegin={100} />
+                <Bar dataKey="low" fill={SEVERITY.LOW} name="LOW" stackId="a" radius={[4, 4, 0, 0]} animationBegin={200} />
               </BarChart>
             </ResponsiveContainer>
           </div>
 
-          {/* 패치 성공률 추이 */}
-          <div style={{
-            background: '#1e293b', border: '1px solid #334155', borderRadius: 12, padding: 20,
-          }}>
-            <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, color: '#94a3b8' }}>
-              AI 수정안 성공률
-            </h3>
+          <div className="glass glass-card">
+            <div style={{ marginBottom: 18 }}>
+              <span className="chapter-label">FIG.02</span>
+              <h3 className="section-title">patches_vs_verified</h3>
+              <p className="text-subtitle"># draft yield over time</p>
+            </div>
             <ResponsiveContainer width="100%" height={200}>
-              <LineChart data={trendData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                <XAxis dataKey="name" tick={{ fill: '#94a3b8', fontSize: 11 }} />
-                <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} allowDecimals={false} />
-                <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8 }} />
-                <Line type="monotone" dataKey="patches" stroke="#3b82f6" name="생성됨" strokeWidth={2} dot={{ r: 4 }} />
-                <Line type="monotone" dataKey="verified" stroke="#22c55e" name="검증 통과" strokeWidth={2} dot={{ r: 4 }} />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
+              <LineChart data={trendData} animationDuration={1200} animationEasing="ease-out">
+                <CartesianGrid strokeDasharray="0" stroke={COLORS.rule} vertical={false} />
+                <XAxis dataKey="name" tick={{ fill: COLORS.inkMute, fontSize: 11, fontFamily: 'Newsreader, serif', fontStyle: 'italic' }} axisLine={{ stroke: COLORS.ink }} tickLine={{ stroke: COLORS.ink }} />
+                <YAxis tick={{ fill: COLORS.inkMute, fontSize: 11, fontFamily: 'Newsreader, serif' }} allowDecimals={false} axisLine={{ stroke: COLORS.ink }} tickLine={{ stroke: COLORS.ink }} />
+                <Tooltip
+                  contentStyle={{
+                    background: 'rgba(15, 20, 32, 0.95)',
+                    border: '1px solid rgba(255,255,255,0.12)',
+                    borderRadius: 12,
+                    backdropFilter: 'blur(16px)',
+                    fontSize: 12,
+                  }}
+                />
+                <Line type="monotone" dataKey="patches"  stroke={COLORS.rust}  name="Drafted"   strokeWidth={2} dot={{ r: 3, fill: COLORS.rust }}  animationBegin={0} />
+                <Line type="monotone" dataKey="verified" stroke={COLORS.olive} name="Witnessed" strokeWidth={2} dot={{ r: 3, fill: COLORS.olive }} animationBegin={300} />
+                <Legend wrapperStyle={{ fontSize: 11, paddingTop: 12, fontFamily: 'Newsreader, serif', fontStyle: 'italic', textTransform: 'uppercase', letterSpacing: '0.12em' }} iconType="square" />
               </LineChart>
             </ResponsiveContainer>
           </div>
         </div>
       )}
 
-      {/* 세션 목록 테이블 */}
-      <div style={{
-        background: '#1e293b', border: '1px solid #334155', borderRadius: 12, overflow: 'hidden',
-      }}>
+      {/* Sessions table */}
+      <div className="table-scroll-wrapper">
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
-            <tr style={{ borderBottom: '1px solid #334155' }}>
-              {['세션', '저장소', '취약점', '높음', '중간', '낮음', '수정안', '검증', '소요시간', '날짜'].map(h => (
-                <th key={h} style={{
-                  padding: '12px 14px', textAlign: 'left', fontSize: 11,
-                  fontWeight: 600, color: '#64748b', textTransform: 'uppercase',
-                }}>{h}</th>
+            <tr>
+              {['SESSION', 'REPO', 'TOT', 'HIG', 'MED', 'LOW', 'GEN', 'VER', 'DUR', 'TIME'].map(h => (
+                <th key={h} className="th-header">
+                  {h}
+                </th>
               ))}
             </tr>
           </thead>
@@ -123,86 +155,98 @@ export default function HistoryView() {
               <React.Fragment key={i}>
                 <tr
                   onClick={() => loadDetail(s.session_id)}
-                  style={{
-                    borderBottom: '1px solid #0f172a',
-                    cursor: 'pointer',
-                    background: selected === s.session_id ? '#0f172a' : 'transparent',
-                  }}
-                  onMouseOver={e => e.currentTarget.style.background = '#0f172a'}
-                  onMouseOut={e => {
-                    if (selected !== s.session_id) e.currentTarget.style.background = 'transparent'
-                  }}
+                  className={`table-row-hover ${selected === s.session_id ? 'table-row-hover--selected' : ''}`}
                 >
-                  <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontSize: 12, color: '#60a5fa' }}>
+                  <td className="td-cell td-cell--mono" style={{ color: COLORS.rust }}>
                     {s.session_id.replace('session_', '').slice(0, 15)}
                   </td>
-                  <td style={{ padding: '10px 14px', fontSize: 13 }}>{s.repo}</td>
-                  <td style={{ padding: '10px 14px', fontSize: 14, fontWeight: 600 }}>{s.total_issues}</td>
-                  <td style={{ padding: '10px 14px', color: '#ef4444', fontWeight: 600 }}>{s.high_count}</td>
-                  <td style={{ padding: '10px 14px', color: '#eab308', fontWeight: 600 }}>{s.medium_count}</td>
-                  <td style={{ padding: '10px 14px', color: '#3b82f6', fontWeight: 600 }}>{s.low_count}</td>
-                  <td style={{ padding: '10px 14px', color: '#22c55e' }}>{s.patches_generated}</td>
-                  <td style={{ padding: '10px 14px', color: '#a855f7' }}>{s.patches_verified}</td>
-                  <td style={{ padding: '10px 14px', fontSize: 12, color: '#94a3b8' }}>
-                    {s.duration_seconds ? `${s.duration_seconds.toFixed(1)}s` : '-'}
+                  <td className="td-cell" style={{ color: 'var(--ink-soft)' }}>{s.repo}</td>
+                  <td className="td-cell" style={{
+                    fontFamily: 'var(--font-display)',
+                    fontVariationSettings: "'opsz' 24",
+                    fontSize: 18,
+                    color: 'var(--ink)',
+                  }}>{s.total_issues}</td>
+                  <td className="td-cell" style={{ color: COLORS.rust, fontWeight: 700 }}>{s.high_count}</td>
+                  <td className="td-cell" style={{ color: COLORS.ochre, fontWeight: 700 }}>{s.medium_count}</td>
+                  <td className="td-cell" style={{ color: COLORS.navy, fontWeight: 700 }}>{s.low_count}</td>
+                  <td className="td-cell" style={{ color: COLORS.inkSoft, fontWeight: 600 }}>{s.patches_generated}</td>
+                  <td className="td-cell" style={{ color: COLORS.olive, fontWeight: 600 }}>{s.patches_verified}</td>
+                  <td className="td-cell td-cell--mono" style={{ fontSize: 11, color: 'var(--ink-mute)' }}>
+                    {s.duration_seconds ? `${s.duration_seconds.toFixed(1)}s` : '—'}
                   </td>
-                  <td style={{ padding: '10px 14px', fontSize: 12, color: '#64748b' }}>
-                    {s.started_at ? s.started_at.slice(0, 16).replace('T', ' ') : '-'}
+                  <td className="td-cell" style={{ fontSize: 11, color: 'var(--ink-mute)', fontStyle: 'italic' }}>
+                    {s.started_at ? s.started_at.slice(0, 16).replace('T', ' ') : '—'}
                   </td>
                 </tr>
-                {/* 세션 상세 (클릭 시 펼침) */}
                 {selected === s.session_id && detail && (
                   <tr>
-                    <td colSpan={10} style={{ padding: 0, background: '#0f172a' }}>
-                      <div style={{ padding: 16 }}>
-                        {/* 취약점 목록 */}
+                    <td colSpan={10} style={{ padding: 0, background: 'var(--paper-deep)' }}>
+                      <div style={{ padding: '22px 28px' }}>
                         {detail.vulnerabilities && detail.vulnerabilities.length > 0 && (
-                          <div style={{ marginBottom: 12 }}>
-                            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: '#94a3b8' }}>
-                              취약점 ({detail.vulnerabilities.length}건)
+                          <div style={{ marginBottom: 18 }}>
+                            <div className="section-label" style={{ color: 'var(--phosphor)' }}>
+                              [ findings ] {detail.vulnerabilities.length}
                             </div>
                             {detail.vulnerabilities.map((v, vi) => (
                               <div key={vi} style={{
-                                padding: '8px 12px', background: '#1e293b', borderRadius: 6,
-                                marginBottom: 4, fontSize: 12, display: 'flex', gap: 10, alignItems: 'center',
+                                padding: '8px 0',
+                                fontSize: 13,
+                                display: 'flex',
+                                gap: 14,
+                                alignItems: 'baseline',
+                                borderBottom: '1px dotted var(--rule)',
+                                fontFamily: 'var(--font-body)',
                               }}>
-                                <span style={{ color: {HIGH:'#ef4444',MEDIUM:'#eab308',LOW:'#3b82f6'}[v.severity] || '#64748b' }}>
-                                  {v.severity}
+                                <span style={{
+                                  color: SEVERITY[v.severity] || COLORS.inkMute,
+                                  fontWeight: 700,
+                                  textTransform: 'uppercase',
+                                  letterSpacing: '0.12em',
+                                  fontSize: 10,
+                                  minWidth: 70,
+                                }}>
+                                  § {v.severity}
                                 </span>
-                                <span style={{ fontFamily: 'monospace', color: '#94a3b8' }}>{v.rule_id}</span>
-                                <span>{v.title}</span>
-                                <span style={{ marginLeft: 'auto', color: '#64748b', fontFamily: 'monospace' }}>
+                                <span style={{ fontFamily: 'var(--font-mono)', color: COLORS.inkMute, fontSize: 11 }}>{v.rule_id}</span>
+                                <span style={{ color: 'var(--ink)' }}>{v.title}</span>
+                                <span style={{ marginLeft: 'auto', color: COLORS.inkMute, fontFamily: 'var(--font-mono)', fontSize: 11 }}>
                                   {(v.file_path || '').split('/').pop()}:{v.line_number}
                                 </span>
                               </div>
                             ))}
                           </div>
                         )}
-                        {/* 패치 목록 */}
                         {detail.patches && detail.patches.filter(p => p.fixed_code).length > 0 && (
                           <div>
-                            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: '#94a3b8' }}>
-                              AI 수정안 ({detail.patches.filter(p => p.fixed_code).length}건)
+                            <div className="section-label" style={{ color: 'var(--phosphor)' }}>
+                              [ patches ] {detail.patches.filter(p => p.fixed_code).length}
                             </div>
                             {detail.patches.filter(p => p.fixed_code).map((p, pi) => (
                               <div key={pi} style={{
-                                padding: '8px 12px', background: '#1e293b', borderRadius: 6,
-                                marginBottom: 4, fontSize: 12,
+                                padding: '8px 0',
+                                fontSize: 13,
+                                display: 'flex',
+                                gap: 14,
+                                alignItems: 'baseline',
+                                borderBottom: '1px dotted var(--rule)',
                               }}>
-                                <span style={{
-                                  padding: '2px 8px', borderRadius: 4, fontSize: 11,
-                                  background: p.status?.includes('verified') || p.status?.includes('VERIFIED') ? '#22c55e20' : '#3b82f620',
-                                  color: p.status?.includes('verified') || p.status?.includes('VERIFIED') ? '#22c55e' : '#3b82f6',
-                                }}>
-                                  {p.status?.includes('verified') || p.status?.includes('VERIFIED') ? '검증 완료' : '생성됨'}
+                                <span className={`badge-status badge-status--${p.status?.includes('verified') || p.status?.includes('VERIFIED') ? 'verified' : 'generated'}`}>
+                                  {p.status?.includes('verified') || p.status?.includes('VERIFIED') ? 'verified' : 'drafted'}
                                 </span>
-                                <span style={{ marginLeft: 8, color: '#94a3b8' }}>{p.vulnerability_id}</span>
+                                <span style={{ color: COLORS.inkMute, fontFamily: 'var(--font-mono)', fontSize: 11 }}>{p.vulnerability_id}</span>
                               </div>
                             ))}
                           </div>
                         )}
                         {!detail.vulnerabilities?.length && (
-                          <div style={{ color: '#64748b', fontSize: 13 }}>상세 정보 없음</div>
+                          <div style={{
+                            color: COLORS.inkFaint,
+                            fontSize: 11,
+                            fontFamily: 'var(--font-mono)',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.14em',
+                          }}># no detail on file</div>
                         )}
                       </div>
                     </td>
@@ -214,8 +258,12 @@ export default function HistoryView() {
         </table>
 
         {sessions.length === 0 && (
-          <div style={{ padding: 40, textAlign: 'center', color: '#64748b' }}>
-            분석 이력이 없습니다. 코드 분석 탭에서 분석을 실행해주세요.
+          <div className="empty-state">
+            <div className="empty-state__icon">∅</div>
+            <div className="empty-state__title">log empty</div>
+            <div className="empty-state__description">
+              run your first scan from the analyze tab
+            </div>
           </div>
         )}
       </div>

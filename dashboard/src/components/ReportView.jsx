@@ -1,18 +1,36 @@
 import React, { useState } from 'react'
+import { apiFetch } from '../api/client'
+
+// Terminal palette — must stay in sync with ../colors.js
+const T = {
+  bg:        '#0a0a0a',
+  bgDeep:    '#050505',
+  bgElev:    '#131311',
+  ink:       '#e9e6d8',
+  inkDim:    '#8a8678',
+  inkFaint:  '#4a4843',
+  rule:      '#232320',
+  ruleHot:   '#3a3a34',
+  phosphor:  '#9eff7d',
+  phosphorDim:'#5fa050',
+  amber:     '#ffb000',
+  blood:     '#ff3d24',
+  cyan:      '#5dd6ff',
+}
+
+const SEV_COLOR = { CRITICAL: T.blood, HIGH: T.blood, MEDIUM: T.amber, LOW: T.cyan }
 
 const API = window.location.origin
 
 export default function ReportView() {
   const [loading, setLoading] = useState(false)
-  const [includeDeps, setIncludeDeps] = useState(false)
   const [error, setError] = useState(null)
 
-  // 기존 API에서 데이터를 모아서 클라이언트에서 리포트 생성
   const fetchReportData = async () => {
     const [statsResp, vulnsResp, patchesResp] = await Promise.all([
-      fetch(`${API}/api/stats`),
-      fetch(`${API}/api/vulnerabilities`),
-      fetch(`${API}/api/patches`),
+      apiFetch(`${API}/api/stats`),
+      apiFetch(`${API}/api/vulnerabilities`),
+      apiFetch(`${API}/api/patches`),
     ])
     const stats = await statsResp.json()
     const vulnsData = await vulnsResp.json()
@@ -21,15 +39,15 @@ export default function ReportView() {
     const vulns = vulnsData.vulnerabilities || []
     const patches = patchesData.patches || []
 
-    if (vulns.length === 0 && (stats.total_issues || 0) === 0) {
-      return null
-    }
-
+    if (vulns.length === 0 && (stats.total_issues || 0) === 0) return null
     return { stats, vulns, patches }
   }
 
   const buildHtml = (stats, vulns, patches) => {
-    const now = new Date().toLocaleString('ko-KR')
+    const now = new Date()
+    const dateStr = now.toISOString().slice(0, 19).replace('T', ' ')
+    const issueId = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}-${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`
+
     const total = stats.total_issues || 0
     const high = stats.high || 0
     const medium = stats.medium || 0
@@ -37,211 +55,338 @@ export default function ReportView() {
     const patchGen = stats.patches_generated || 0
     const patchVer = stats.patches_verified || 0
     const riskScore = high * 10 + medium * 5 + low * 1
-    const riskLevel = riskScore < 10 ? 'LOW' : riskScore < 30 ? 'MEDIUM' : riskScore < 60 ? 'HIGH' : 'CRITICAL'
-    const riskColor = { LOW: '#22c55e', MEDIUM: '#f59e0b', HIGH: '#ef4444', CRITICAL: '#dc2626' }[riskLevel]
+    const riskLevel = riskScore < 10 ? 'GREEN' : riskScore < 30 ? 'AMBER' : riskScore < 60 ? 'RED' : 'CRITICAL'
+    const riskColor = { GREEN: T.phosphor, AMBER: T.amber, RED: T.blood, CRITICAL: T.blood }[riskLevel]
     const fixRate = total > 0 && patchVer > 0 ? Math.round(patchVer / total * 100) : 0
 
+    const max = Math.max(total, 1)
+    const bar = (n, color) => {
+      const filled = Math.round((n / max) * 32)
+      return `<span style="color:${color}">${'█'.repeat(filled)}${'░'.repeat(32 - filled)}</span>`
+    }
+
     const vulnRows = vulns.map((v, i) => {
-      const sevColor = { HIGH: '#ef4444', MEDIUM: '#f59e0b', LOW: '#3b82f6' }[v.severity] || '#64748b'
+      const sevColor = SEV_COLOR[v.severity] || T.inkDim
       const cweLink = v.cwe_id
-        ? `<a href="https://cwe.mitre.org/data/definitions/${v.cwe_id.replace('CWE-','')}.html" target="_blank" style="color:#60a5fa">${v.cwe_id}</a>`
-        : '-'
+        ? `<a href="https://cwe.mitre.org/data/definitions/${v.cwe_id.replace('CWE-', '')}.html" target="_blank">${v.cwe_id}</a>`
+        : '--'
       return `<tr>
-        <td>${i + 1}</td>
-        <td><span style="color:${sevColor};font-weight:700">${v.severity}</span></td>
-        <td><code>${v.rule_id || '-'}</code></td>
-        <td>${v.title || '-'}</td>
+        <td class="num">${String(i + 1).padStart(2, '0')}</td>
+        <td><span class="sev" style="color:${sevColor};border-color:${sevColor}">[${v.severity}]</span></td>
+        <td><code>${v.rule_id || '--'}</code></td>
+        <td class="title">${v.title || '--'}</td>
         <td><code>${(v.file_path || '').split('/').pop()}</code></td>
-        <td>${v.line_number || '-'}</td>
+        <td class="rt">:${v.line_number || '?'}</td>
         <td>${cweLink}</td>
       </tr>`
     }).join('')
 
     const vulnDetails = vulns.map((v, i) => {
       const snippet = v.code_snippet ? `<pre><code>${escHtml(v.code_snippet)}</code></pre>` : ''
-      return `<div style="margin-bottom:24px">
-        <h4>${i + 1}. [${v.severity}] ${v.rule_id} — ${v.title}</h4>
-        <ul>
-          <li><strong>파일:</strong> <code>${v.file_path}:${v.line_number}</code></li>
-          <li><strong>도구:</strong> ${v.tool || '-'}</li>
-          ${v.cwe_id ? `<li><strong>CWE:</strong> <a href="https://cwe.mitre.org/data/definitions/${v.cwe_id.replace('CWE-','')}.html" target="_blank">${v.cwe_id}</a></li>` : ''}
-          <li><strong>설명:</strong> ${v.description || '-'}</li>
-        </ul>
+      const sevColor = SEV_COLOR[v.severity] || T.inkDim
+      return `<article class="entry">
+        <header class="entry__head">
+          <span class="entry__num">[${String(i + 1).padStart(2, '0')}]</span>
+          <h3 class="entry__title">${v.title || ''}</h3>
+        </header>
+        <p class="entry__meta">
+          <span class="sev" style="color:${sevColor};border-color:${sevColor}">[${v.severity}]</span>
+          &nbsp; <code>${v.rule_id || ''}</code>
+          ${v.cwe_id ? `&nbsp;·&nbsp; <a href="https://cwe.mitre.org/data/definitions/${v.cwe_id.replace('CWE-','')}.html" target="_blank">${v.cwe_id}</a>` : ''}
+          &nbsp;·&nbsp; <span class="tool">${v.tool || 'static'}</span>
+        </p>
+        <p class="entry__body">${escHtml(v.description || '--')}</p>
+        <p class="entry__locus">@ ${v.file_path}:${v.line_number}</p>
         ${snippet}
-      </div>`
+      </article>`
     }).join('')
 
-    const patchRows = patches.filter(p => p.fixed_code).map((p, i) => {
-      const status = (p.status || '').replace('PatchStatus.', '').toLowerCase()
-      const statusIcon = { verified: '✅', generated: '🔵', failed: '❌' }[status] || '⚪'
-      const typeLabel = { minimal: '최소 수정', recommended: '권장 수정', structural: '구조적 개선' }[p.fix_type] || p.fix_type
-      const sec = p.security_revalidation || {}
-      const secLabel = sec.passed ? '✅ 통과' : (sec.introduced_count > 0 ? '❌ 실패' : '-')
-      return `<tr>
-        <td>${i + 1}</td>
-        <td><code>${p.vulnerability_id || p.rule_id || '-'}</code></td>
-        <td>${typeLabel}</td>
-        <td>${statusIcon} ${status}</td>
-        <td>${secLabel}</td>
-      </tr>`
-    }).join('')
-
-    const patchDetails = patches.filter(p => p.fixed_code).map((p, i) => {
-      const typeLabel = { minimal: '최소 수정', recommended: '권장 수정', structural: '구조적 개선' }[p.fix_type] || p.fix_type
+    const validPatches = patches.filter(p => p.fixed_code)
+    const patchDetails = validPatches.map((p, i) => {
+      const typeLabel = { minimal: 'MINIMAL', recommended: 'RECOMMENDED', structural: 'STRUCTURAL' }[p.fix_type] || 'PATCH'
       const exp = (p.explanation || '').split('\n\n✅')[0].split('\n\n❌')[0].trim()
       const sec = p.security_revalidation || {}
       const secHtml = sec.passed
-        ? `<p style="color:#22c55e">🛡️ <strong>보안 재검증: 통과</strong> (원본: ${sec.original_vuln_count || 0}건 → 수정: ${sec.fixed_vuln_count || 0}건, ${sec.removed_count || 0}건 제거)</p>`
+        ? `<p class="witness witness--passed">[OK] revalidation passed · ${sec.original_vuln_count || 0} -> ${sec.fixed_vuln_count || 0} (${sec.removed_count || 0} removed)</p>`
         : sec.introduced_count > 0
-          ? `<p style="color:#ef4444">⚠️ <strong>보안 재검증: 실패</strong> — 새 취약점 ${sec.introduced_count}건 발견</p>`
+          ? `<p class="witness witness--failed">[FAIL] revalidation introduced ${sec.introduced_count} new finding(s)</p>`
           : ''
-      return `<div style="margin-bottom:24px">
-        <h4>${i + 1}. ${typeLabel} — <code>${p.vulnerability_id || '-'}</code></h4>
-        ${exp ? `<p><strong>수정 근거:</strong> ${escHtml(exp)}</p>` : ''}
-        <p><strong>수정 코드:</strong></p>
-        <pre><code>${escHtml(p.fixed_code)}</code></pre>
+      return `<article class="remedy">
+        <header class="remedy__head">
+          <span class="remedy__num">[${String(i + 1).padStart(2, '0')}]</span>
+          <h3 class="remedy__title">${typeLabel} <span class="dim">/ ${p.vulnerability_id || '--'}</span></h3>
+        </header>
+        ${exp ? `<p class="remedy__body">// ${escHtml(exp)}</p>` : ''}
+        <pre class="remedy__code"><code>${escHtml(p.fixed_code)}</code></pre>
         ${secHtml}
-      </div>`
+      </article>`
     }).join('')
 
     return `<!DOCTYPE html>
-<html lang="ko">
+<html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Dallo DevSecOps 분석 리포트</title>
-  <style>
-    *{margin:0;padding:0;box-sizing:border-box}
-    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0f172a;color:#e2e8f0;line-height:1.7;padding:40px;max-width:960px;margin:0 auto}
-    h1{font-size:26px;color:#fff;border-bottom:2px solid #3b82f6;padding-bottom:12px;margin-bottom:8px}
-    h2{font-size:20px;color:#60a5fa;margin:32px 0 16px}
-    h3{font-size:17px;color:#93c5fd;margin:24px 0 12px}
-    h4{font-size:14px;color:#cbd5e1;margin:16px 0 8px}
-    table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13px}
-    th{background:#1e293b;padding:10px 12px;text-align:left;border-bottom:2px solid #334155;color:#94a3b8;font-weight:600;font-size:11px;text-transform:uppercase}
-    td{padding:8px 12px;border-bottom:1px solid #1e293b}
-    code{background:#1e293b;padding:2px 6px;border-radius:4px;font-size:12px;color:#93c5fd}
-    pre{background:#1e293b;padding:16px;border-radius:8px;overflow-x:auto;font-size:12px;line-height:1.6;margin:12px 0;border:1px solid #334155}
-    pre code{background:none;padding:0;color:#e2e8f0}
-    hr{border:none;border-top:1px solid #334155;margin:24px 0}
-    a{color:#60a5fa;text-decoration:none}
-    strong{color:#fff}
-    ul{padding-left:24px;margin:8px 0}
-    li{margin:4px 0}
-    .summary-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:16px 0}
-    .summary-card{background:#1e293b;border:1px solid #334155;border-radius:8px;padding:16px;text-align:center}
-    .summary-card .value{font-size:28px;font-weight:700}
-    .summary-card .label{font-size:12px;color:#94a3b8;margin-top:4px}
-    .risk-badge{display:inline-block;padding:4px 16px;border-radius:6px;font-weight:700;font-size:14px}
-    .print-btn{position:fixed;top:20px;right:20px;padding:10px 20px;background:#3b82f6;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600}
-    @media print{
-      .print-btn{display:none}
-      body{background:#fff;color:#000;padding:20px}
-      h1{color:#000;border-color:#000}h2,h3{color:#1e40af}
-      th{background:#f1f5f9;color:#000}td{border-color:#e2e8f0}
-      pre,code{background:#f8fafc;color:#000;border-color:#e2e8f0}
-      .summary-card{background:#f8fafc;border-color:#e2e8f0}
-    }
-  </style>
+<meta charset="UTF-8">
+<title>dallo.sec / report ${issueId}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  :root{
+    --bg:${T.bg};--bg-deep:${T.bgDeep};--bg-elev:${T.bgElev};
+    --ink:${T.ink};--ink-dim:${T.inkDim};--ink-faint:${T.inkFaint};
+    --rule:${T.rule};--rule-hot:${T.ruleHot};
+    --phosphor:${T.phosphor};--phosphor-dim:${T.phosphorDim};
+    --amber:${T.amber};--blood:${T.blood};--cyan:${T.cyan};
+    --mono:'JetBrains Mono',ui-monospace,Consolas,monospace;
+  }
+  html,body{background:var(--bg);color:var(--ink);font-family:var(--mono);font-size:13px;line-height:1.55;font-variant-ligatures:none}
+  body{padding:48px 56px 80px;max-width:960px;margin:0 auto;position:relative;min-height:100vh}
+  body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+    background-image:repeating-linear-gradient(to bottom,transparent 0,transparent 2px,rgba(255,255,255,.012) 2px,rgba(255,255,255,.012) 3px),radial-gradient(circle at 1px 1px,rgba(255,255,255,.025) 1px,transparent 0);
+    background-size:100% 3px,24px 24px}
+  body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;background:radial-gradient(ellipse at center,transparent 40%,rgba(0,0,0,.4) 100%)}
+  body>*{position:relative;z-index:1}
+  a{color:var(--cyan);text-decoration:underline;text-underline-offset:2px;text-decoration-color:rgba(93,214,255,.4)}
+  a:hover{color:var(--phosphor);text-shadow:0 0 8px rgba(158,255,125,.4)}
+  code{font-family:var(--mono);font-size:.9em;color:var(--cyan);background:none}
+  pre{font-family:var(--mono);background:var(--bg-deep);color:var(--ink);padding:14px 18px;font-size:11px;line-height:1.7;overflow-x:auto;border-left:2px solid var(--phosphor-dim);border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);margin:12px 0;white-space:pre}
+  pre code{background:none;padding:0;color:inherit;font-size:inherit}
+  strong{color:var(--phosphor);font-weight:700}
+
+  /* Status bar */
+  .statusbar{background:var(--phosphor);color:var(--bg);padding:6px 24px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.14em;display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;margin:-48px -56px 32px}
+  .statusbar .blink{display:inline-block;width:6px;height:6px;background:var(--bg);animation:blk 1.1s steps(2,start) infinite}
+  @keyframes blk{to{background:transparent}}
+
+  /* Masthead */
+  .masthead{margin-bottom:36px;padding-bottom:18px;border-bottom:1px solid var(--rule-hot);position:relative}
+  .masthead::after{content:'';position:absolute;left:0;bottom:-1px;width:120px;height:1px;background:var(--phosphor)}
+  .masthead__id{display:flex;align-items:baseline;gap:14px;margin-bottom:8px}
+  .bracket{font-size:36px;color:var(--phosphor);font-weight:300;line-height:1}
+  .wordmark{font-size:48px;font-weight:800;letter-spacing:-.02em;line-height:1;text-transform:lowercase}
+  .wordmark .accent{color:var(--phosphor)}
+  .wordmark .dim{color:var(--ink-faint);font-weight:400}
+  .caret{display:inline-block;width:11px;height:1.1em;background:var(--phosphor);margin-left:4px;transform:translateY(2px);box-shadow:0 0 12px rgba(158,255,125,.5)}
+  .tagline{font-size:10px;color:var(--ink-dim);text-transform:uppercase;letter-spacing:.16em;padding-left:14px}
+  .meta{display:flex;justify-content:space-between;align-items:baseline;font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:var(--ink-dim);margin-top:14px;flex-wrap:wrap;gap:14px}
+  .meta strong{color:var(--phosphor);font-weight:700}
+
+  /* Headlines */
+  h1{font-size:48px;font-weight:800;line-height:.95;letter-spacing:-.02em;margin-bottom:14px;text-transform:uppercase}
+  h1 em{font-style:normal;color:var(--phosphor)}
+  .deck{font-size:12px;color:var(--ink-dim);max-width:80ch;line-height:1.6;margin-bottom:36px}
+  .deck::before{content:'$ ';color:var(--phosphor);font-weight:700}
+
+  h2{font-size:18px;font-weight:800;letter-spacing:0;margin:56px 0 4px;text-transform:uppercase;color:var(--ink)}
+  h2::before{content:'## ';color:var(--phosphor)}
+  .h2-deck{font-size:11px;color:var(--ink-dim);margin-bottom:22px;border-bottom:1px solid var(--rule-hot);padding-bottom:14px;text-transform:uppercase;letter-spacing:.12em;position:relative}
+  .h2-deck::after{content:'';position:absolute;left:0;bottom:-1px;width:48px;height:1px;background:var(--phosphor)}
+
+  /* Stat figures */
+  .figures{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin:24px 0 36px}
+  .fig{padding:14px 18px;border:1px solid var(--rule-hot);background:var(--bg-elev);position:relative}
+  .fig::before{content:'';position:absolute;top:-1px;left:-1px;width:10px;height:10px;border-top:1px solid;border-left:1px solid;border-color:inherit}
+  .fig::after{content:'';position:absolute;bottom:-1px;right:-1px;width:10px;height:10px;border-bottom:1px solid;border-right:1px solid;border-color:inherit}
+  .fig__label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.16em;color:var(--ink-dim);display:flex;justify-content:space-between;margin-bottom:12px}
+  .fig__label span:last-child{color:var(--ink-faint)}
+  .fig__value{font-size:48px;font-weight:800;line-height:.9;letter-spacing:-.04em;margin-bottom:12px}
+  .fig__bar{font-size:11px;line-height:1;letter-spacing:0}
+
+  /* Verdict */
+  .verdict{padding:18px 22px;background:var(--bg-deep);border:1px solid var(--rule-hot);border-left:2px solid var(--phosphor);margin:32px 0;font-size:12px;line-height:1.7}
+  .verdict::before{content:'┌─[ VERDICT ]──────────────';display:block;color:var(--phosphor);font-size:10px;letter-spacing:.16em;margin-bottom:10px;text-transform:uppercase}
+  .verdict strong{color:var(--phosphor)}
+  .level{display:inline-block;padding:2px 10px;border:1px solid;font-weight:700;text-transform:uppercase;letter-spacing:.12em;font-size:11px}
+
+  /* Table */
+  table{width:100%;border-collapse:collapse;margin:14px 0 36px;font-size:12px}
+  th{font-family:var(--mono);text-transform:uppercase;letter-spacing:.14em;font-size:10px;color:var(--phosphor);text-align:left;padding:8px 12px;border-bottom:1px solid var(--phosphor-dim);border-top:1px solid var(--phosphor-dim);font-weight:700;background:var(--bg-deep)}
+  td{padding:8px 12px;border-bottom:1px dashed var(--rule);color:var(--ink-dim)}
+  td.num{color:var(--ink-faint);font-weight:600}
+  td.title{color:var(--ink)}
+  td.rt{text-align:right;color:var(--ink-dim)}
+  .sev{font-weight:700;text-transform:uppercase;letter-spacing:.1em;font-size:10px;padding:2px 6px;border:1px solid;display:inline-block}
+
+  /* Entries */
+  .entry,.remedy{margin:32px 0;padding:22px 24px;border:1px solid var(--rule-hot);background:var(--bg-elev);position:relative}
+  .entry::before,.remedy::before{content:'';position:absolute;top:-1px;left:-1px;width:14px;height:14px;border-top:1px solid var(--phosphor);border-left:1px solid var(--phosphor)}
+  .entry::after,.remedy::after{content:'';position:absolute;bottom:-1px;right:-1px;width:14px;height:14px;border-bottom:1px solid var(--phosphor);border-right:1px solid var(--phosphor)}
+  .entry__head,.remedy__head{display:flex;gap:14px;align-items:baseline;margin-bottom:10px}
+  .entry__num,.remedy__num{font-size:14px;font-weight:800;color:var(--phosphor);font-family:var(--mono)}
+  .entry__title,.remedy__title{font-size:18px;font-weight:800;letter-spacing:-.01em;line-height:1.2;color:var(--ink);text-transform:uppercase}
+  .remedy__title .dim{color:var(--ink-faint);font-weight:400}
+  .entry__meta{font-size:11px;color:var(--ink-dim);margin-bottom:12px}
+  .entry__meta code{color:var(--cyan)}
+  .entry__meta .tool{color:var(--ink-faint);font-style:normal}
+  .entry__body{font-size:12px;line-height:1.65;color:var(--ink);max-width:74ch;margin:12px 0;padding-left:14px;border-left:1px solid var(--rule-hot)}
+  .entry__locus{font-size:11px;color:var(--cyan);margin:10px 0}
+  .remedy__body{font-size:12px;line-height:1.65;color:var(--ink-dim);max-width:74ch;margin:8px 0}
+  .witness{margin-top:14px;font-size:11px;padding:8px 14px;border:1px solid;text-transform:uppercase;letter-spacing:.04em}
+  .witness--passed{color:var(--phosphor);border-color:var(--phosphor-dim);background:rgba(158,255,125,.05)}
+  .witness--failed{color:var(--blood);border-color:var(--blood);background:rgba(255,61,36,.06)}
+
+  /* Print button */
+  .print-btn{position:fixed;top:48px;right:24px;padding:8px 16px;background:var(--phosphor);color:var(--bg);border:none;font-family:var(--mono);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.14em;cursor:pointer;z-index:100}
+  .print-btn:hover{background:var(--cyan)}
+
+  /* Footer */
+  .colophon{margin-top:64px;padding-top:14px;border-top:1px solid var(--rule-hot);display:flex;justify-content:space-between;font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:var(--ink-faint);flex-wrap:wrap;gap:12px}
+
+  @media print{
+    .print-btn,.statusbar{display:none}
+    body::before,body::after{display:none}
+    body{padding:30px 40px;background:#0a0a0a}
+  }
+</style>
 </head>
 <body>
-  <button class="print-btn" onclick="window.print()">인쇄 / PDF 저장</button>
-
-  <h1>Dallo DevSecOps 분석 리포트</h1>
-  <p style="color:#94a3b8;margin-bottom:24px">생성일시: ${now}${stats.session_id ? ` | 세션: ${stats.session_id}` : ''}${stats.duration_seconds ? ` | 소요시간: ${stats.duration_seconds}초` : ''}</p>
-
-  <h2>요약</h2>
-  <div class="summary-grid">
-    <div class="summary-card"><div class="value" style="color:#f8fafc">${total}</div><div class="label">전체 취약점</div></div>
-    <div class="summary-card"><div class="value" style="color:#ef4444">${high}</div><div class="label">높음 (HIGH)</div></div>
-    <div class="summary-card"><div class="value" style="color:#f59e0b">${medium}</div><div class="label">중간 (MEDIUM)</div></div>
-    <div class="summary-card"><div class="value" style="color:#3b82f6">${low}</div><div class="label">낮음 (LOW)</div></div>
-    <div class="summary-card"><div class="value" style="color:#22c55e">${patchGen}</div><div class="label">AI 수정안 생성</div></div>
-    <div class="summary-card"><div class="value" style="color:#a855f7">${patchVer}</div><div class="label">검증 통과</div></div>
+  <div class="statusbar">
+    <span><span class="blink"></span>&nbsp; dallo.sec / report</span>
+    <span>${dateStr}</span>
+    <span>id ${issueId}</span>
+    <span>state <span style="background:${riskColor};color:#0a0a0a;padding:0 6px">${riskLevel}</span></span>
+    <span>issues ${total}</span>
   </div>
 
-  <p style="margin:16px 0">
-    <strong>위험도 점수:</strong>
-    <span class="risk-badge" style="background:${riskColor}20;color:${riskColor}">${riskScore}점 (${riskLevel})</span>
-    ${fixRate > 0 ? `&nbsp;&nbsp;<strong>수정률:</strong> ${fixRate}%` : ''}
-  </p>
+  <header class="masthead">
+    <div class="masthead__id">
+      <span class="bracket">[</span>
+      <span class="wordmark">dallo<span class="dim">.</span><span class="accent">sec</span><span class="caret"></span></span>
+      <span class="bracket">]</span>
+    </div>
+    <div class="tagline"># static analysis · llm patch synthesis · audit trail</div>
+    <div class="meta">
+      <span>report <strong>${issueId}</strong></span>
+      <span>generated <strong>${dateStr}</strong></span>
+      <span>llm <strong>gemini-2.0-flash-lite</strong></span>
+      <span>build <strong>v0.4.1</strong></span>
+    </div>
+  </header>
+
+  <h1>findings_<em>report</em></h1>
+  <p class="deck">${total} issues across the audit · severity weighted score ${riskScore} · risk class ${riskLevel}${fixRate > 0 ? ` · fix rate ${fixRate}%` : ''}</p>
+
+  <h2>summary</h2>
+  <div class="h2-deck">snapshot of the most recent audit, in counts</div>
+
+  <div class="figures">
+    <div class="fig" style="border-color:${T.ruleHot}">
+      <div class="fig__label"><span>[TOT]</span><span>total</span></div>
+      <div class="fig__value" style="color:${T.ink}">${String(total).padStart(2,'0')}</div>
+      <div class="fig__bar">${bar(total, T.ink)}</div>
+    </div>
+    <div class="fig" style="border-color:${T.blood}">
+      <div class="fig__label" style="color:${T.blood}"><span>[HIG]</span><span>high</span></div>
+      <div class="fig__value" style="color:${T.blood}">${String(high).padStart(2,'0')}</div>
+      <div class="fig__bar">${bar(high, T.blood)}</div>
+    </div>
+    <div class="fig" style="border-color:${T.amber}">
+      <div class="fig__label" style="color:${T.amber}"><span>[MED]</span><span>med</span></div>
+      <div class="fig__value" style="color:${T.amber}">${String(medium).padStart(2,'0')}</div>
+      <div class="fig__bar">${bar(medium, T.amber)}</div>
+    </div>
+    <div class="fig" style="border-color:${T.cyan}">
+      <div class="fig__label" style="color:${T.cyan}"><span>[LOW]</span><span>low</span></div>
+      <div class="fig__value" style="color:${T.cyan}">${String(low).padStart(2,'0')}</div>
+      <div class="fig__bar">${bar(low, T.cyan)}</div>
+    </div>
+    <div class="fig" style="border-color:${T.cyan}">
+      <div class="fig__label" style="color:${T.cyan}"><span>[GEN]</span><span>drafted</span></div>
+      <div class="fig__value" style="color:${T.cyan}">${String(patchGen).padStart(2,'0')}</div>
+      <div class="fig__bar">${bar(patchGen, T.cyan)}</div>
+    </div>
+    <div class="fig" style="border-color:${T.phosphor}">
+      <div class="fig__label" style="color:${T.phosphor}"><span>[VER]</span><span>witnessed</span></div>
+      <div class="fig__value" style="color:${T.phosphor}">${String(patchVer).padStart(2,'0')}</div>
+      <div class="fig__bar">${bar(patchVer, T.phosphor)}</div>
+    </div>
+  </div>
+
+  <div class="verdict">
+    state <span class="level" style="color:${riskColor};border-color:${riskColor}">${riskLevel}</span>
+    &nbsp; · &nbsp; weighted score <strong>${riskScore}</strong>
+    ${fixRate > 0 ? `&nbsp; · &nbsp; fix rate <strong>${fixRate}%</strong>` : ''}
+    <br/><br/>
+    ${riskLevel === 'GREEN'
+      ? 'no immediate action required. continue routine vigilance.'
+      : riskLevel === 'AMBER'
+        ? 'attention warranted. address the high-severity findings before next deploy.'
+        : 'immediate action required. block release until critical findings are remedied.'}
+  </div>
 
   ${vulns.length > 0 ? `
-  <hr>
-  <h2>취약점 목록</h2>
+  <h2>findings</h2>
+  <div class="h2-deck">complete listing · ordered by severity, then file</div>
   <table>
-    <thead><tr><th>#</th><th>심각도</th><th>규칙</th><th>제목</th><th>파일</th><th>라인</th><th>CWE</th></tr></thead>
+    <thead><tr><th>NN</th><th>SEV</th><th>RULE</th><th>TITLE</th><th>FILE</th><th>LN</th><th>CWE</th></tr></thead>
     <tbody>${vulnRows}</tbody>
   </table>
 
-  <h3>취약점 상세</h3>
+  <h2>findings_detail</h2>
+  <div class="h2-deck">expanded entries with code excerpts</div>
   ${vulnDetails}
   ` : ''}
 
-  ${patches.filter(p => p.fixed_code).length > 0 ? `
-  <hr>
-  <h2>AI 수정 제안</h2>
-  <table>
-    <thead><tr><th>#</th><th>취약점</th><th>수정 유형</th><th>상태</th><th>보안 재검증</th></tr></thead>
-    <tbody>${patchRows}</tbody>
-  </table>
-
-  <h3>수정안 상세</h3>
+  ${validPatches.length > 0 ? `
+  <h2>patches</h2>
+  <div class="h2-deck">llm-drafted remedies · ${patchVer > 0 ? 'witnessed by re-analysis' : 'awaiting witness'}</div>
   ${patchDetails}
   ` : ''}
 
-  <hr>
-  <p style="color:#64748b;font-size:12px;margin-top:24px;text-align:center">
-    Dallo DevSecOps — LLM 기반 보안 분석 플랫폼
-  </p>
+  <footer class="colophon">
+    <span>// END_OF_REPORT</span>
+    <span>JetBrains Mono · ${dateStr}</span>
+    <span>:wq</span>
+  </footer>
+
+  <button class="print-btn" onclick="window.print()">print / pdf ↗</button>
 </body>
 </html>`
   }
 
   const buildMarkdown = (stats, vulns, patches) => {
-    const now = new Date().toLocaleString('ko-KR')
+    const now = new Date().toISOString().slice(0, 19).replace('T', ' ')
     const total = stats.total_issues || 0
     const high = stats.high || 0
     const medium = stats.medium || 0
     const low = stats.low || 0
     const riskScore = high * 10 + medium * 5 + low * 1
-    const riskLevel = riskScore < 10 ? 'LOW' : riskScore < 30 ? 'MEDIUM' : riskScore < 60 ? 'HIGH' : 'CRITICAL'
+    const riskLevel = riskScore < 10 ? 'GREEN' : riskScore < 30 ? 'AMBER' : riskScore < 60 ? 'RED' : 'CRITICAL'
 
-    let md = `# Dallo DevSecOps 분석 리포트\n\n> 생성일시: ${now}\n\n---\n\n## 요약\n\n`
-    md += `| 항목 | 건수 |\n|------|------|\n`
-    md += `| 전체 취약점 | **${total}** |\n| 높음 (HIGH) | ${high} |\n| 중간 (MEDIUM) | ${medium} |\n| 낮음 (LOW) | ${low} |\n`
-    md += `| AI 수정안 | ${stats.patches_generated || 0} |\n| 검증 통과 | ${stats.patches_verified || 0} |\n\n`
-    md += `**위험도 점수**: ${riskScore}점 (${riskLevel})\n\n`
+    let md = `# dallo.sec / report\n\n\`\`\`\n# generated: ${now}\n# state:     ${riskLevel}\n# score:     ${riskScore}\n\`\`\`\n\n---\n\n## summary\n\n`
+    md += `| key | label     | count |\n|-----|-----------|------:|\n`
+    md += `| TOT | total     | **${total}** |\n| HIG | high      | ${high} |\n| MED | med       | ${medium} |\n| LOW | low       | ${low} |\n`
+    md += `| GEN | drafted   | ${stats.patches_generated || 0} |\n| VER | witnessed | ${stats.patches_verified || 0} |\n\n`
 
     if (vulns.length > 0) {
-      md += `---\n\n## 취약점 목록\n\n| # | 심각도 | 규칙 | 제목 | 파일 | 라인 | CWE |\n|---|--------|------|------|------|------|-----|\n`
+      md += `---\n\n## findings\n\n| NN | SEV | RULE | TITLE | FILE | LN | CWE |\n|---:|-----|------|-------|------|---:|-----|\n`
       vulns.forEach((v, i) => {
-        md += `| ${i+1} | ${v.severity} | \`${v.rule_id}\` | ${v.title} | \`${(v.file_path||'').split('/').pop()}\` | ${v.line_number} | ${v.cwe_id||'-'} |\n`
+        md += `| ${String(i+1).padStart(2,'0')} | [${v.severity}] | \`${v.rule_id}\` | ${v.title} | \`${(v.file_path||'').split('/').pop()}\` | :${v.line_number} | ${v.cwe_id||'--'} |\n`
       })
       md += '\n'
     }
 
     const validPatches = patches.filter(p => p.fixed_code)
     if (validPatches.length > 0) {
-      md += `---\n\n## AI 수정 제안\n\n`
+      md += `---\n\n## patches\n\n`
       validPatches.forEach((p, i) => {
-        const typeLabel = { minimal: '최소 수정', recommended: '권장 수정', structural: '구조적 개선' }[p.fix_type] || p.fix_type
-        md += `### ${i+1}. ${typeLabel} — \`${p.vulnerability_id || '-'}\`\n\n`
-        if (p.explanation) md += `${p.explanation.split('\n\n✅')[0].split('\n\n❌')[0].trim()}\n\n`
+        const typeLabel = { minimal: 'MINIMAL', recommended: 'RECOMMENDED', structural: 'STRUCTURAL' }[p.fix_type] || 'PATCH'
+        md += `### [${String(i+1).padStart(2,'0')}] ${typeLabel} / \`${p.vulnerability_id || '--'}\`\n\n`
+        if (p.explanation) md += `// ${p.explanation.split('\n\n✅')[0].split('\n\n❌')[0].trim()}\n\n`
         md += `\`\`\`\n${p.fixed_code}\n\`\`\`\n\n`
       })
     }
 
-    md += `---\n\n*Dallo DevSecOps — LLM 기반 보안 분석 플랫폼*\n`
+    md += `---\n\n\`// END_OF_REPORT :wq\`\n`
     return md
   }
 
   const openReport = async () => {
-    setLoading(true)
-    setError(null)
+    setLoading(true); setError(null)
     try {
       const data = await fetchReportData()
       if (!data) {
-        setError('분석 데이터가 없습니다. 코드 분석 탭에서 먼저 분석을 실행해주세요.')
+        setError('NO_DATA: run a scan from the analyze tab first')
         setLoading(false)
         return
       }
@@ -250,18 +395,17 @@ export default function ReportView() {
       w.document.write(html)
       w.document.close()
     } catch (e) {
-      setError(`리포트 생성 실패: ${e.message}`)
+      setError(`REPORT_ERROR: ${e.message}`)
     }
     setLoading(false)
   }
 
   const downloadMarkdown = async () => {
-    setLoading(true)
-    setError(null)
+    setLoading(true); setError(null)
     try {
       const data = await fetchReportData()
       if (!data) {
-        setError('분석 데이터가 없습니다. 코드 분석 탭에서 먼저 분석을 실행해주세요.')
+        setError('NO_DATA: run a scan from the analyze tab first')
         setLoading(false)
         return
       }
@@ -274,97 +418,107 @@ export default function ReportView() {
       a.click()
       URL.revokeObjectURL(url)
     } catch (e) {
-      setError(`다운로드 실패: ${e.message}`)
+      setError(`DOWNLOAD_ERROR: ${e.message}`)
     }
     setLoading(false)
   }
 
   return (
     <div>
-      <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 16 }}>
-        분석 리포트
-      </h2>
+      <div className="page-header">
+        <h1 className="page-title">
+          <em>$</em>&nbsp;report <span style={{ color: 'var(--ink-faint)' }}>--build</span>
+        </h1>
+        <p className="page-subtitle">
+          composes the most recent audit into a printable document — opens in a new window
+        </p>
+      </div>
 
-      {/* 메인 액션 */}
-      <div style={{
-        background: '#1e293b',
-        border: '1px solid #334155',
-        borderRadius: 12,
-        padding: 24,
-        marginBottom: 20,
-      }}>
-        <div style={{ fontSize: 14, color: '#94a3b8', marginBottom: 20 }}>
-          가장 최근 분석 결과를 보안 리포트로 생성합니다.
+      <div className="glass glass-card" style={{ marginBottom: 24 }}>
+        <div style={{
+          fontFamily: 'var(--font-mono)',
+          fontSize: 12,
+          color: 'var(--ink-dim)',
+          lineHeight: 1.7,
+          marginBottom: 24,
+          maxWidth: '74ch',
+        }}>
+          <div style={{ color: 'var(--phosphor)', marginBottom: 6 }}>┌─[ build_report ]──────────────</div>
+          // includes summary, full findings table, expanded detail entries,<br/>
+          // llm-drafted patches, and (where applicable) revalidation results.<br/>
+          // output: standalone html document, printable to pdf via browser.
+          <div style={{ color: 'var(--phosphor)', marginTop: 6 }}>└──────────────────────────────</div>
         </div>
 
-        <div style={{ display: 'flex', gap: 12 }}>
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
           <button
             onClick={openReport}
             disabled={loading}
             style={{
-              padding: '12px 28px',
-              borderRadius: 8,
-              border: 'none',
+              padding: '11px 22px',
+              borderRadius: 0,
+              border: '1px solid var(--phosphor)',
               cursor: loading ? 'wait' : 'pointer',
-              fontSize: 15,
-              fontWeight: 600,
-              background: loading ? '#334155' : '#3b82f6',
-              color: '#fff',
+              fontSize: 11,
+              fontWeight: 700,
+              background: loading ? 'var(--bg-elev)' : 'var(--phosphor)',
+              color: loading ? 'var(--ink-faint)' : 'var(--bg)',
+              fontFamily: 'var(--font-mono)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.16em',
             }}
           >
-            {loading ? '생성 중...' : '리포트 보기 (새 탭)'}
+            {loading ? '> compiling...' : '> ./build_report.sh ↗'}
           </button>
           <button
             onClick={downloadMarkdown}
             disabled={loading}
             style={{
-              padding: '12px 24px',
-              borderRadius: 8,
-              border: '1px solid #334155',
+              padding: '11px 18px',
+              borderRadius: 0,
+              border: '1px solid var(--rule-hot)',
               cursor: loading ? 'wait' : 'pointer',
-              fontSize: 14,
+              fontSize: 11,
               fontWeight: 600,
               background: 'transparent',
-              color: '#94a3b8',
+              color: 'var(--ink-dim)',
+              fontFamily: 'var(--font-mono)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.14em',
             }}
           >
-            마크다운(.md) 다운로드
+            {'> download.md'}
           </button>
         </div>
       </div>
 
-      {error && (
-        <div style={{
-          background: '#451a03',
-          border: '1px solid #92400e',
-          borderRadius: 8,
-          padding: 16,
-          marginBottom: 16,
-          fontSize: 13,
-          color: '#fbbf24',
-        }}>
-          {error}
-        </div>
-      )}
+      {error && <div className="fade-in alert alert--warning">{error}</div>}
 
-      <div style={{
-        background: '#1e293b',
-        border: '1px solid #334155',
-        borderRadius: 12,
-        padding: 32,
-        color: '#64748b',
-      }}>
-        <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 12, color: '#94a3b8' }}>
-          리포트에 포함되는 내용
+      <div className="glass glass-card">
+        <span className="chapter-label">manifest</span>
+        <h3 className="section-title">contents of the report</h3>
+        <div style={{
+          fontFamily: 'var(--font-mono)',
+          fontSize: 11,
+          lineHeight: 2,
+          color: 'var(--ink-dim)',
+          marginTop: 14,
+        }}>
+          <div>├── <span style={{ color: 'var(--phosphor)' }}>summary</span> · counts, ratios, weighted score</div>
+          <div>├── <span style={{ color: 'var(--phosphor)' }}>verdict</span> · risk class + recommended action</div>
+          <div>├── <span style={{ color: 'var(--phosphor)' }}>findings</span> · complete table + expanded entries</div>
+          <div>├── <span style={{ color: 'var(--phosphor)' }}>patches</span> · llm drafts + revalidation results</div>
+          <div>└── <span style={{ color: 'var(--ink-faint)' }}>END_OF_REPORT</span></div>
         </div>
-        <div style={{ fontSize: 13, lineHeight: 2.2 }}>
-          <div>• <strong style={{ color: '#e2e8f0' }}>취약점 요약</strong> — 전체 건수, 심각도별 분류, 위험도 점수</div>
-          <div>• <strong style={{ color: '#e2e8f0' }}>취약점 상세</strong> — 규칙, CWE 링크, 코드 스니펫, 설명</div>
-          <div>• <strong style={{ color: '#e2e8f0' }}>AI 수정안</strong> — 수정 코드, 수정 근거, 수정 유형(최소/권장/구조적)</div>
-          <div>• <strong style={{ color: '#e2e8f0' }}>보안 재검증</strong> — 수정 코드에 새 취약점이 없는지 검증 결과</div>
-        </div>
-        <div style={{ fontSize: 12, color: '#475569', marginTop: 16 }}>
-          * "리포트 보기" 클릭 시 새 탭에서 바로 열립니다. 브라우저에서 Ctrl+P로 PDF 저장이 가능합니다.
+        <hr className="rule-thin" />
+        <div style={{
+          fontSize: 10,
+          color: 'var(--ink-faint)',
+          fontFamily: 'var(--font-mono)',
+          textTransform: 'uppercase',
+          letterSpacing: '0.14em',
+        }}>
+          # ctrl+p (or ⌘p) in the new window to commit to pdf
         </div>
       </div>
     </div>

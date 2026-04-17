@@ -87,6 +87,7 @@ class BanditRunner:
             "bandit",
             "-r", target_path,           # 재귀 분석
             "-f", "json",                # JSON 출력
+            "-q",                        # progress bar 억제 (stdout JSON 오염 방지)
             "--confidence-level", "all", # 모든 신뢰도
             "--severity-level", "all",   # 모든 심각도
         ]
@@ -107,12 +108,12 @@ class BanditRunner:
 
             # JSON 파싱
             if proc.stdout:
-                raw = json.loads(proc.stdout)
+                raw = self._parse_json_output(proc.stdout)
                 result.raw_output = raw
 
                 # 리포트 저장
                 if output_path:
-                    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
                     with open(output_path, "w", encoding="utf-8") as f:
                         json.dump(raw, f, indent=2, ensure_ascii=False)
 
@@ -129,6 +130,28 @@ class BanditRunner:
             result.error = "Bandit이 설치되어 있지 않습니다. pip install bandit"
 
         return result
+
+    @staticmethod
+    def _parse_json_output(stdout: str) -> dict:
+        """Bandit stdout에서 JSON을 파싱합니다.
+
+        -q 플래그로 progress bar를 억제하지만, 이전 버전이나
+        예상치 못한 환경에서 stdout 앞에 비-JSON 텍스트가 섞일 수 있으므로
+        직접 파싱 실패 시 '{' 위치를 찾아 재시도합니다.
+        """
+        # 1차: 직접 파싱
+        try:
+            return json.loads(stdout)
+        except json.JSONDecodeError:
+            pass
+
+        # 2차: JSON 시작점('{')을 찾아 재파싱 (progress bar 등 접두사 제거)
+        json_start = stdout.find("{")
+        if json_start > 0:
+            return json.loads(stdout[json_start:])
+
+        # 둘 다 실패하면 원래 에러를 발생시킴
+        raise json.JSONDecodeError("Bandit stdout에서 JSON을 찾을 수 없습니다", stdout, 0)
 
     def _parse_results(self, raw: dict, result: AnalysisResult) -> AnalysisResult:
         """Bandit JSON 출력을 정규화된 형태로 변환"""

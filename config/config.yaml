@@ -1,0 +1,29 @@
+# Dallo DevSecOps 설정 (config/config.yaml)
+
+# 파이프라인 설정
+pipeline:
+  # 분석 순서: 정적 분석 → 중복 제거 → 위험도 산정 → 정책 필터 → LLM → 검증
+  deduplication:
+    enabled: true
+    similarity_threshold: 0.85  # 코드 유사도 임계값 (0~1)
+
+  risk_scoring:
+    enabled: true
+
+  policy_filter:
+    enabled: false  # 기업 보안 정책 필터 (현재 비활성)
+    # 아래 조건에 해당하는 취약점은 LLM 전달에서 제외
+    exclude_rules: []           # 제외할 rule_id 목록 (예: ["B101", "B105"])
+    min_severity: "LOW"         # 이 심각도 미만은 제외 (LOW/MEDIUM/HIGH/CRITICAL)
+    exclude_cwe: []             # 제외할 CWE ID 목록
+
+# LLM 설정
+llm:
+  primary_provider: "gemini"
+  batch_size: 5                 # 배치 처리 시 최대 취약점 수
+  cache_ttl_days: 7             # 캐시 TTL (일)
+
+# CI/CD Gate 설정
+ci_gate:
+  critical_threshold: 1         # critical N개 이상이면 빌드 실패
+  high_threshold: 5             # high N개 이상이면 빌드 실패

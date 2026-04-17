@@ -8,17 +8,17 @@ React 대시보드가 이 API를 호출하여 데이터를 가져갑니다.
   uvicorn api.server:app --reload --port 8000
 """
 
-from fastapi import FastAPI, Query, UploadFile, File, Form, BackgroundTasks
+from fastapi import FastAPI, Query, UploadFile, File, Form, BackgroundTasks, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
+from api.auth import verify_api_key
 import json
+import re
 import os
 import sys
-import tempfile
-import shutil
 import time
 import uuid
 from datetime import datetime
@@ -37,7 +37,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://localhost:5173"],
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["*", "X-API-Key"],
 )
 
 # React 대시보드 빌드 파일 서빙
@@ -55,8 +55,19 @@ REPORTS_DIR = "reports"
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-# 분석 작업 상태 저장 (메모리)
+# 분석 작업 상태 저장 (메모리 — Celery 미사용 시 fallback)
 analysis_jobs = {}
+
+# Celery 사용 가능 여부 감지
+_USE_CELERY = False
+try:
+    from api.celery_app import celery_app as _celery
+    from api.tasks import run_analysis_task
+    # Redis 연결 확인
+    _celery.connection_for_write().ensure_connection(max_retries=1, timeout=2)
+    _USE_CELERY = True
+except Exception:
+    _USE_CELERY = False
 
 
 class AnalyzeRequest(BaseModel):
@@ -65,7 +76,7 @@ class AnalyzeRequest(BaseModel):
     use_llm: bool = True
     multi_patch: bool = False
     provider: str = "gemini"
-    model: str = "gemini-3.1-flash-lite-preview"
+    model: str = "gemini-2.0-flash-lite"
 
 
 class ApplyPatchRequest(BaseModel):
@@ -76,6 +87,254 @@ class ApplyPatchRequest(BaseModel):
     fix_type: str = "recommended"
     github_repo: str = ""     # 사용자의 GitHub 레포 (owner/repo)
     github_token: str = ""    # 사용자의 GitHub 토큰
+
+
+class QuickScanRequest(BaseModel):
+    code: str
+    language: str = "python"
+
+
+# ============================================================
+# 빠른 스캔 (정규식 기반, 프로세스 실행 없이 즉시 응답)
+# ============================================================
+
+QUICK_SCAN_RULES = [
+    # SQL Injection
+    {
+        "id": "QS-SQL-INJECT",
+        "title": "SQL Injection 가능성",
+        "severity": "HIGH",
+        "cwe": "CWE-89",
+        "patterns": [
+            r'f"[^"]*(?:SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER)\b[^"]*\{',
+            r"f'[^']*(?:SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER)\b[^']*\{",
+            r'["\'].*(?:SELECT|INSERT|UPDATE|DELETE)\b.*["\']\s*\+',
+            r'\.format\(.*\).*(?:execute|query)',
+            r'%s.*(?:execute|query)|(?:execute|query).*%\s',
+            r'(?:executeQuery|executeUpdate|execute)\([^)]*\+',
+            r'(?:query|exec)\([^)]*\+\s*(?:req\.|user)',
+            r'"\s*\+\s*\w+\s*\+\s*".*(?:SELECT|INSERT|UPDATE|DELETE|WHERE)',
+        ],
+        "languages": ["python", "java", "javascript", "go", "php", "ruby"],
+        "message": "사용자 입력이 SQL 쿼리에 직접 삽입될 수 있습니다. 파라미터 바인딩을 사용하세요.",
+    },
+    # Command Injection
+    {
+        "id": "QS-CMD-INJECT",
+        "title": "Command Injection 가능성",
+        "severity": "HIGH",
+        "cwe": "CWE-78",
+        "patterns": [
+            r'os\.system\s*\(\s*f["\']',
+            r'os\.system\s*\([^)]*\+',
+            r'os\.popen\s*\(\s*f["\']',
+            r'subprocess\.(?:call|run|Popen)\s*\(\s*f["\']',
+            r'subprocess\.(?:call|run|Popen)\s*\([^)]*shell\s*=\s*True',
+            r'Runtime\.getRuntime\(\)\.exec\s*\([^)]*\+',
+            r'exec\s*\(\s*["\'][^"\']*["\']\s*\+',
+            r'child_process.*exec\s*\([^)]*\+',
+        ],
+        "languages": ["python", "java", "javascript", "go", "c", "cpp"],
+        "message": "외부 명령어에 사용자 입력이 삽입될 수 있습니다. shlex.quote() 또는 허용 목록을 사용하세요.",
+    },
+    # Hardcoded Secrets
+    {
+        "id": "QS-HARDCODED-SECRET",
+        "title": "하드코딩된 인증 정보",
+        "severity": "HIGH",
+        "cwe": "CWE-798",
+        "patterns": [
+            r'(?:API_KEY|API_SECRET|SECRET_KEY|ACCESS_KEY|PRIVATE_KEY)\s*=\s*["\'][^"\']{8,}["\']',
+            r'(?:password|passwd|pwd)\s*=\s*["\'][^"\']{4,}["\']',
+            r'(?:token|TOKEN)\s*=\s*["\'][^"\']{8,}["\']',
+            r'(?:sk-|ghp_|gho_|AIzaSy|AKIA)[A-Za-z0-9_\-]{10,}',
+            r'(?:DB_PASSWORD|DATABASE_PASSWORD|MYSQL_PASSWORD)\s*=\s*["\'][^"\']+["\']',
+        ],
+        "languages": ["python", "java", "javascript", "go", "c", "cpp", "ruby", "php", "kotlin", "rust"],
+        "message": "인증 정보가 소스코드에 하드코딩되어 있습니다. 환경변수나 시크릿 매니저를 사용하세요.",
+    },
+    # Weak Hashing
+    {
+        "id": "QS-WEAK-HASH",
+        "title": "취약한 해시 알고리즘",
+        "severity": "MEDIUM",
+        "cwe": "CWE-328",
+        "patterns": [
+            r'hashlib\.(?:md5|sha1)\s*\(',
+            r'MessageDigest\.getInstance\s*\(\s*["\'](?:MD5|SHA-1|SHA1)["\']',
+            r'crypto\.create(?:Hash|Hmac)\s*\(\s*["\'](?:md5|sha1)["\']',
+            r'MD5\.Create\(\)',
+            r'Digest::(?:MD5|SHA1)',
+        ],
+        "languages": ["python", "java", "javascript", "ruby", "go", "cpp"],
+        "message": "MD5/SHA1은 보안 용도에 부적합합니다. SHA-256 이상 또는 bcrypt/argon2를 사용하세요.",
+    },
+    # XSS
+    {
+        "id": "QS-XSS",
+        "title": "XSS (Cross-Site Scripting) 가능성",
+        "severity": "HIGH",
+        "cwe": "CWE-79",
+        "patterns": [
+            r'res\.send\s*\(\s*["\']<[^>]*["\']\s*\+',
+            r'document\.write\s*\(',
+            r'\.innerHTML\s*=\s*(?![\s]*["\']<)',
+            r'v-html\s*=',
+            r'dangerouslySetInnerHTML',
+            r'\.write\s*\(\s*["\']<.*\+',
+        ],
+        "languages": ["javascript", "python", "java", "php", "ruby"],
+        "message": "사용자 입력이 HTML에 직접 삽입될 수 있습니다. 이스케이프 처리를 적용하세요.",
+    },
+    # Insecure Deserialization
+    {
+        "id": "QS-UNSAFE-DESERIAL",
+        "title": "안전하지 않은 역직렬화",
+        "severity": "HIGH",
+        "cwe": "CWE-502",
+        "patterns": [
+            r'pickle\.loads?\s*\(',
+            r'yaml\.load\s*\([^)]*(?!Loader)',
+            r'eval\s*\(\s*(?:request|req|input|user)',
+            r'unserialize\s*\(\s*\$',
+            r'Marshal\.load\s*\(',
+        ],
+        "languages": ["python", "java", "javascript", "php", "ruby"],
+        "message": "신뢰할 수 없는 데이터의 역직렬화는 원격 코드 실행으로 이어질 수 있습니다.",
+    },
+    # Path Traversal
+    {
+        "id": "QS-PATH-TRAVERSAL",
+        "title": "경로 탐색 취약점",
+        "severity": "MEDIUM",
+        "cwe": "CWE-22",
+        "patterns": [
+            r'open\s*\(\s*(?:f["\']|.*\+|.*format|.*%)',
+            r'os\.path\.join\s*\([^)]*(?:request|req|input|user)',
+            r'readFile(?:Sync)?\s*\([^)]*(?:req\.|user)',
+            r'new\s+File\s*\([^)]*\+',
+        ],
+        "languages": ["python", "java", "javascript", "go", "php"],
+        "message": "사용자 입력이 파일 경로에 사용되면 경로 탐색 공격이 가능합니다.",
+    },
+    # Insecure Random
+    {
+        "id": "QS-INSECURE-RANDOM",
+        "title": "보안에 부적합한 난수 생성",
+        "severity": "LOW",
+        "cwe": "CWE-330",
+        "patterns": [
+            r'random\.random\s*\(',
+            r'random\.randint\s*\(',
+            r'Math\.random\s*\(',
+            r'java\.util\.Random\b',
+            r'rand\s*\(\s*\)',
+        ],
+        "languages": ["python", "java", "javascript", "c", "cpp", "go"],
+        "message": "보안 목적(토큰, 키 생성)에는 secrets 모듈이나 crypto.randomBytes를 사용하세요.",
+    },
+]
+
+
+def _detect_language(filename: str) -> str:
+    ext_map = {
+        ".py": "python", ".java": "java", ".js": "javascript", ".jsx": "javascript",
+        ".ts": "javascript", ".tsx": "javascript", ".go": "go", ".c": "c",
+        ".cpp": "cpp", ".h": "c", ".hpp": "cpp", ".rb": "ruby", ".php": "php",
+        ".kt": "kotlin", ".rs": "rust", ".cs": "csharp",
+    }
+    _, ext = os.path.splitext(filename.lower())
+    return ext_map.get(ext, "python")
+
+
+def _quick_scan(code: str, language: str) -> list:
+    """정규식 기반 빠른 취약점 스캔 (밀리초 단위 응답)"""
+    findings = []
+    lines = code.split("\n")
+
+    for rule in QUICK_SCAN_RULES:
+        if language not in rule["languages"]:
+            continue
+        for pattern in rule["patterns"]:
+            try:
+                regex = re.compile(pattern, re.IGNORECASE)
+                for line_num, line_text in enumerate(lines, 1):
+                    if regex.search(line_text):
+                        # 같은 룰이 같은 라인에 중복 탐지되지 않도록
+                        already = any(
+                            f["rule_id"] == rule["id"] and f["line"] == line_num
+                            for f in findings
+                        )
+                        if not already:
+                            findings.append({
+                                "rule_id": rule["id"],
+                                "title": rule["title"],
+                                "severity": rule["severity"],
+                                "cwe": rule["cwe"],
+                                "line": line_num,
+                                "code": line_text.strip(),
+                                "message": rule["message"],
+                            })
+            except re.error:
+                continue
+
+    findings.sort(key=lambda f: f["line"])
+    return findings
+
+
+@app.post("/api/quick-scan", dependencies=[Depends(verify_api_key)])
+def quick_scan(req: QuickScanRequest):
+    """정규식 기반 빠른 스캔 — 프로세스 실행 없이 밀리초 단위 응답"""
+    language = req.language or "python"
+    start = time.time()
+    findings = _quick_scan(req.code, language)
+    elapsed_ms = round((time.time() - start) * 1000, 1)
+    return {
+        "findings": findings,
+        "count": len(findings),
+        "elapsed_ms": elapsed_ms,
+        "scan_type": "quick",
+    }
+
+
+class ProjectScanRequest(BaseModel):
+    files: List[dict]  # [{"path": "src/app.py", "code": "..."}]
+
+
+@app.post("/api/quick-scan-project", dependencies=[Depends(verify_api_key)])
+def quick_scan_project(req: ProjectScanRequest):
+    """프로젝트 전체 빠른 스캔 — 여러 파일을 한 번에 분석"""
+    start = time.time()
+    file_results = []
+    total_findings = 0
+    summary = {"HIGH": 0, "MEDIUM": 0, "LOW": 0}
+
+    for f in req.files:
+        fpath = f.get("path", "unknown")
+        code = f.get("code", "")
+        lang = _detect_language(fpath)
+        findings = _quick_scan(code, lang)
+        for finding in findings:
+            summary[finding["severity"]] = summary.get(finding["severity"], 0) + 1
+        total_findings += len(findings)
+        file_results.append({
+            "path": fpath,
+            "language": lang,
+            "findings": findings,
+            "count": len(findings),
+        })
+
+    # 취약점 많은 파일 순으로 정렬
+    file_results.sort(key=lambda x: x["count"], reverse=True)
+    elapsed_ms = round((time.time() - start) * 1000, 1)
+
+    return {
+        "files": file_results,
+        "total_files": len(file_results),
+        "total_findings": total_findings,
+        "summary": summary,
+        "elapsed_ms": elapsed_ms,
+    }
 
 
 # ============================================================
@@ -109,7 +368,7 @@ def root():
     return {"message": "Dallo DevSecOps API", "version": "1.0.0"}
 
 
-@app.get("/api/stats")
+@app.get("/api/stats", dependencies=[Depends(verify_api_key)])
 def get_stats():
     """대시보드 메인 통계 (DB 우선, 폴백: JSON 파일)"""
     stats = db_service.get_stats()
@@ -144,7 +403,7 @@ def get_stats():
     }
 
 
-@app.get("/api/vulnerabilities")
+@app.get("/api/vulnerabilities", dependencies=[Depends(verify_api_key)])
 def get_vulnerabilities(
     severity: Optional[str] = Query(None, description="HIGH, MEDIUM, LOW"),
     tool: Optional[str] = Query(None, description="bandit, sonarqube"),
@@ -186,7 +445,7 @@ def get_vulnerabilities(
     return {"count": len(vulns), "vulnerabilities": vulns}
 
 
-@app.get("/api/vulnerabilities/by-file")
+@app.get("/api/vulnerabilities/by-file", dependencies=[Depends(verify_api_key)])
 def get_vulnerabilities_by_file():
     """파일별 취약점 수 집계"""
     data = get_vulnerabilities(severity=None, tool=None, file_path=None)
@@ -205,7 +464,7 @@ def get_vulnerabilities_by_file():
     return {"files": list(file_counts.values())}
 
 
-@app.get("/api/vulnerabilities/by-type")
+@app.get("/api/vulnerabilities/by-type", dependencies=[Depends(verify_api_key)])
 def get_vulnerabilities_by_type():
     """취약점 유형별 집계"""
     data = get_vulnerabilities(severity=None, tool=None, file_path=None)
@@ -223,7 +482,7 @@ def get_vulnerabilities_by_type():
     return {"types": list(type_counts.values())}
 
 
-@app.get("/api/patches")
+@app.get("/api/patches", dependencies=[Depends(verify_api_key)])
 def get_patches():
     """LLM 수정 제안 목록"""
     full = load_full_result()
@@ -247,14 +506,14 @@ def get_patches():
     return {"count": len(enriched), "patches": enriched}
 
 
-@app.get("/api/sessions")
+@app.get("/api/sessions", dependencies=[Depends(verify_api_key)])
 def get_sessions():
     """분석 세션 이력 (DB)"""
     sessions = db_service.get_all_sessions()
     return {"count": len(sessions), "sessions": sessions}
 
 
-@app.get("/api/sessions/{session_id}")
+@app.get("/api/sessions/{session_id}", dependencies=[Depends(verify_api_key)])
 def get_session_detail(session_id: str):
     """특정 세션 상세 조회"""
     result = db_service.get_analysis_by_session(session_id)
@@ -268,133 +527,35 @@ def get_session_detail(session_id: str):
 # ============================================================
 
 def _run_analysis(job_id: str, code: str, filename: str, use_llm: bool, provider: str, model: str, multi_patch: bool = False):
-    """백그라운드에서 분석 파이프라인 실행"""
-    from analyzer.semgrep_runner import detect_and_run, SemgrepRunner, EXTENSION_MAP
-    from analyzer.bandit_runner import BanditRunner
-    from analyzer.context_extractor import ContextExtractor
-    from shared.schemas import VulnerabilityReport, AnalysisSession, PatchStatus
+    """백그라운드에서 분석 파이프라인 실행 (analyzer.pipeline에 위임)"""
+    from analyzer.pipeline import execute_pipeline
 
     analysis_jobs[job_id]["status"] = "analyzing"
-    start_time = time.time()
+
+    def on_progress(step: str):
+        analysis_jobs[job_id]["step"] = step
 
     try:
-        # 입력 크기 제한 (1MB)
-        if len(code) > 1_000_000:
-            analysis_jobs[job_id]["status"] = "failed"
-            analysis_jobs[job_id]["error"] = "코드가 너무 큽니다 (최대 1MB)"
-            return
-
-        # 임시 디렉토리에 코드 저장
-        tmp_dir = tempfile.mkdtemp(prefix="dallo_analyze_")
-        file_path = os.path.join(tmp_dir, filename)
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write(code)
-
-        # Step 1: 언어 감지 + 적절한 분석기 실행
-        ext = os.path.splitext(filename)[1].lower()
-        lang = EXTENSION_MAP.get(ext, "unknown")
-        analysis_jobs[job_id]["language"] = lang
-
-        if ext == ".py":
-            analysis_jobs[job_id]["step"] = "Bandit + Semgrep 정적 분석 중..."
-        else:
-            analysis_jobs[job_id]["step"] = f"Semgrep 정적 분석 중... ({lang})"
-
-        result = detect_and_run(file_path)
-
-        # Step 2: 코드 문맥 추출
-        analysis_jobs[job_id]["step"] = "코드 문맥 추출 중..."
-        extractor = ContextExtractor(context_lines=10)
-        contexts = extractor.extract_batch(result.vulnerabilities)
-
-        context_map = {}
-        for ctx in contexts:
-            key = (ctx.vulnerability.file_path, ctx.vulnerability.line_number)
-            context_map[key] = ctx
-
-        # VulnerabilityReport 변환
-        vuln_reports = []
-        for vuln in result.vulnerabilities:
-            key = (vuln.file_path, vuln.line_number)
-            ctx = context_map.get(key)
-            vuln_reports.append(VulnerabilityReport(
-                id=f"vuln_{vuln.rule_id}_{vuln.line_number}",
-                tool=vuln.tool,
-                rule_id=vuln.rule_id,
-                severity=vuln.severity,
-                confidence=vuln.confidence,
-                title=vuln.title,
-                description=vuln.description,
-                file_path=filename,  # 원래 파일명 사용
-                line_number=vuln.line_number,
-                code_snippet=vuln.code_snippet,
-                function_code=ctx.full_function if ctx else "",
-                file_imports=ctx.file_imports if ctx else "",
-                cwe_id=vuln.cwe_id,
-            ))
-
-        # Step 3: LLM 수정안 생성
-        patches = []
-        if use_llm and vuln_reports:
-            analysis_jobs[job_id]["step"] = "AI 수정안 생성 중..."
-            try:
-                from agent.llm_agent import DalloAgent
-                agent = DalloAgent(provider=provider, model=model)
-                patches = agent.generate_patches(vuln_reports, multi=multi_patch)
-            except Exception as e:
-                analysis_jobs[job_id]["llm_error"] = str(e)
-
-        # Step 4: 코드 검증 (언어 감지하여 적절한 검증)
-        if patches:
-            analysis_jobs[job_id]["step"] = "코드 검증 중..."
-            from validator.syntax_checker import SyntaxChecker
-            checker = SyntaxChecker()
-            for p in patches:
-                checker.check(p, language=lang)
-
-        # Step 5: 보안 재검증 (수정 코드에 Bandit/Semgrep 재실행)
-        if patches:
-            analysis_jobs[job_id]["step"] = "보안 재검증 중 (수정 코드 보안 스캔)..."
-            from validator.security_checker import SecurityChecker
-            sec_checker = SecurityChecker()
-            for p in patches:
-                if p.status != PatchStatus.FAILED:
-                    # 원본 코드 찾기
-                    orig = ""
-                    for vr in vuln_reports:
-                        if vr.id == p.vulnerability_id:
-                            orig = vr.function_code or vr.code_snippet or ""
-                            break
-                    sec_checker.check(p, language=lang, filename=filename, original_code=orig)
-
-        # 결과 조립
-        elapsed = time.time() - start_time
-        session = AnalysisSession(
-            session_id=job_id,
-            repo="dashboard-upload",
-            pr_number=0,
-            commit_sha="direct-upload",
-            vulnerabilities=vuln_reports,
-            patches=patches,
+        result = execute_pipeline(
+            job_id=job_id, code=code, filename=filename,
+            use_llm=use_llm, provider=provider, model=model,
+            multi_patch=multi_patch, on_progress=on_progress,
         )
-        session.update_stats()
-        session.completed_at = datetime.now().isoformat()
-        session.duration_seconds = round(elapsed, 2)
 
-        result_data = session.to_dict()
+        analysis_jobs[job_id]["language"] = result.language
+        if result.llm_error:
+            analysis_jobs[job_id]["llm_error"] = result.llm_error
+        if result.db_error:
+            analysis_jobs[job_id]["db_error"] = result.db_error
 
-        # JSON 파일로 저장
+        result_data = result.result_data
+
+        # JSON 파일로 저장 (server 전용 — Celery task에서는 생략)
         os.makedirs(REPORTS_DIR, exist_ok=True)
         with open(os.path.join(REPORTS_DIR, "full_result.json"), "w", encoding="utf-8") as f:
             json.dump(result_data, f, indent=2, ensure_ascii=False)
 
-        # DB에 저장
-        try:
-            db_service.save_analysis(result_data)
-        except Exception as e:
-            analysis_jobs[job_id]["db_error"] = str(e)
-
-        # Step 6: 리포트 자동 생성
+        # 리포트 자동 생성 (server 전용)
         analysis_jobs[job_id]["step"] = "리포트 생성 중..."
         try:
             from reports.report_generator import ReportGenerator
@@ -415,15 +576,21 @@ def _run_analysis(job_id: str, code: str, filename: str, use_llm: bool, provider
         analysis_jobs[job_id]["status"] = "failed"
         analysis_jobs[job_id]["error"] = str(e)
         analysis_jobs[job_id]["step"] = f"오류: {str(e)}"
-    finally:
-        # 임시 디렉토리 정리 (에러 발생 시에도 반드시 실행)
-        if 'tmp_dir' in locals():
-            shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
-@app.post("/api/analyze")
+@app.post("/api/analyze", dependencies=[Depends(verify_api_key)])
 def start_analysis(req: AnalyzeRequest, background_tasks: BackgroundTasks):
-    """코드를 제출하여 분석을 시작합니다."""
+    """코드를 제출하여 분석을 시작합니다. Celery 사용 가능 시 task로 제출."""
+    if _USE_CELERY:
+        # Celery task로 제출
+        task = run_analysis_task.delay(
+            code=req.code, filename=req.filename,
+            use_llm=req.use_llm, provider=req.provider,
+            model=req.model, multi_patch=req.multi_patch,
+        )
+        return {"job_id": task.id, "status": "queued", "message": "분석이 시작되었습니다. (Celery)", "backend": "celery"}
+
+    # Celery 미사용 fallback — 기존 메모리 방식
     job_id = f"job_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
 
     analysis_jobs[job_id] = {
@@ -443,19 +610,65 @@ def start_analysis(req: AnalyzeRequest, background_tasks: BackgroundTasks):
         req.use_llm, req.provider, req.model, req.multi_patch,
     )
 
-    return {"job_id": job_id, "status": "queued", "message": "분석이 시작되었습니다."}
+    return {"job_id": job_id, "status": "queued", "message": "분석이 시작되었습니다.", "backend": "memory"}
 
 
-@app.get("/api/analyze/{job_id}")
+@app.get("/api/analyze/status/{task_id}", dependencies=[Depends(verify_api_key)])
+def get_celery_task_status(task_id: str):
+    """Celery task 상태를 조회합니다. (AsyncResult 기반)"""
+    if not _USE_CELERY:
+        return {"error": "Celery가 활성화되어 있지 않습니다."}
+
+    from celery.result import AsyncResult
+    result = AsyncResult(task_id, app=_celery)
+
+    response = {
+        "task_id": task_id,
+        "status": result.state,  # PENDING / STARTED / PROGRESS / SUCCESS / FAILURE
+    }
+
+    if result.state == "PROGRESS":
+        response.update(result.info or {})
+    elif result.state == "SUCCESS":
+        response["result"] = result.result
+    elif result.state == "FAILURE":
+        response["error"] = str(result.result)
+
+    return response
+
+
+@app.get("/api/analyze/{job_id}", dependencies=[Depends(verify_api_key)])
 def get_analysis_status(job_id: str):
-    """분석 작업 상태를 조회합니다."""
+    """분석 작업 상태를 조회합니다. (메모리 방식 + Celery 자동 감지)"""
+    # 메모리에서 먼저 조회
     job = analysis_jobs.get(job_id)
-    if not job:
-        return {"error": "Job not found"}
-    return job
+    if job:
+        return job
+
+    # Celery에서 조회 시도
+    if _USE_CELERY:
+        from celery.result import AsyncResult
+        result = AsyncResult(job_id, app=_celery)
+        if result.state != "PENDING":
+            response = {
+                "job_id": job_id,
+                "status": result.state.lower(),
+                "step": "완료" if result.state == "SUCCESS" else result.state,
+            }
+            if result.state == "PROGRESS":
+                response.update(result.info or {})
+            elif result.state == "SUCCESS":
+                response["result"] = result.result.get("result") if isinstance(result.result, dict) else None
+                response["status"] = result.result.get("status", "completed") if isinstance(result.result, dict) else "completed"
+            elif result.state == "FAILURE":
+                response["error"] = str(result.result)
+                response["status"] = "failed"
+            return response
+
+    return {"error": "Job not found"}
 
 
-@app.post("/api/apply-patch")
+@app.post("/api/apply-patch", dependencies=[Depends(verify_api_key)])
 def apply_patch(req: ApplyPatchRequest):
     """
     수정안을 적용합니다.
@@ -605,7 +818,7 @@ def apply_patch(req: ApplyPatchRequest):
     return result
 
 
-@app.post("/api/analyze/file")
+@app.post("/api/analyze/file", dependencies=[Depends(verify_api_key)])
 async def analyze_file(file: UploadFile = File(...), use_llm: bool = Form(True)):
     """파일을 업로드하여 분석합니다."""
     content = await file.read()
@@ -632,7 +845,7 @@ async def analyze_file(file: UploadFile = File(...), use_llm: bool = Form(True))
 # 리포트 생성 API
 # ============================================================
 
-@app.get("/api/report/generate")
+@app.get("/api/report/generate", dependencies=[Depends(verify_api_key)])
 def generate_report(
     fmt: str = Query("html", description="md, html, both"),
     session_id: Optional[str] = Query(None, description="세션 ID (없으면 최신)"),
@@ -677,7 +890,7 @@ def generate_report(
     }
 
 
-@app.get("/api/report/download/{filename}")
+@app.get("/api/report/download/{filename}", dependencies=[Depends(verify_api_key)])
 def download_report(filename: str):
     """생성된 리포트 파일을 다운로드합니다."""
     safe_name = filename.replace("/", "_").replace("\\", "_")
@@ -689,7 +902,7 @@ def download_report(filename: str):
     return FileResponse(path, media_type=media_type, filename=safe_name)
 
 
-@app.get("/api/report/preview")
+@app.get("/api/report/preview", dependencies=[Depends(verify_api_key)])
 def preview_report(
     session_id: Optional[str] = Query(None),
     include_deps: bool = Query(False),
@@ -735,7 +948,7 @@ class DependencyScanRequest(BaseModel):
     project_path: str = ""           # 프로젝트 경로 (서버 로컬)
 
 
-@app.post("/api/dependencies/scan")
+@app.post("/api/dependencies/scan", dependencies=[Depends(verify_api_key)])
 def scan_dependencies(req: DependencyScanRequest):
     """의존성 취약점을 스캔합니다."""
     from analyzer.dependency_scanner import DependencyScanner
@@ -756,7 +969,7 @@ def scan_dependencies(req: DependencyScanRequest):
     return {"results": results}
 
 
-@app.get("/api/dependencies")
+@app.get("/api/dependencies", dependencies=[Depends(verify_api_key)])
 def get_dependencies():
     """현재 프로젝트의 의존성 스캔 결과를 반환합니다."""
     from analyzer.dependency_scanner import DependencyScanner

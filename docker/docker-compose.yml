@@ -24,11 +24,16 @@ services:
     environment:
       - DATABASE_URL=postgresql://dallo:dallo_password@postgres:5432/dallo_db
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
-      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-dallo-production-key}
+      - DALLO_ENCRYPTION_KEY=${DALLO_ENCRYPTION_KEY:-}
+      - DALLO_API_KEYS=${DALLO_API_KEYS:-}
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
       - SONAR_HOST_URL=http://sonarqube:9000
       - SONAR_TOKEN=${SONAR_TOKEN:-}
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - dallo-network
@@ -59,6 +64,49 @@ services:
     restart: unless-stopped
 
   # ===================================
+  # Redis (Celery 브로커 + 캐시)
+  # ===================================
+  redis:
+    image: redis:7-alpine
+    container_name: dallo-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - dallo-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  # ===================================
+  # Celery Worker (비동기 분석 작업)
+  # ===================================
+  celery-worker:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: dallo-celery-worker
+    command: celery -A api.celery_app worker --loglevel=info --concurrency=2
+    environment:
+      - DATABASE_URL=postgresql://dallo:dallo_password@postgres:5432/dallo_db
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - DALLO_ENCRYPTION_KEY=${DALLO_ENCRYPTION_KEY:-}
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - dallo-network
+    restart: unless-stopped
+
+  # ===================================
   # SonarQube (정적 분석)
   # ===================================
   sonarqube:
@@ -82,6 +130,7 @@ services:
     restart: unless-stopped
 
 volumes:
+  redis_data:
   postgresql_data:
   sonarqube_data:
   sonarqube_logs:

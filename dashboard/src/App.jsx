@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import StatsCards from './components/StatsCards'
 import VulnTable from './components/VulnTable'
 import FileChart from './components/FileChart'
@@ -8,10 +8,37 @@ import AnalyzeView from './components/AnalyzeView'
 import HistoryView from './components/HistoryView'
 import DependencyView from './components/DependencyView'
 import ReportView from './components/ReportView'
+import LoginView from './components/LoginView'
+import { apiFetch, isAuthenticated, clearApiKey } from './api/client'
 
 const API = window.location.port === '5173' ? '/api' : `${window.location.origin}/api`
 
+// Tick clock for the status bar — updates every second.
+function useClock() {
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000)
+    return () => clearInterval(id)
+  }, [])
+  return now
+}
+
+function fmtTime(d) {
+  const hh = String(d.getHours()).padStart(2, '0')
+  const mm = String(d.getMinutes()).padStart(2, '0')
+  const ss = String(d.getSeconds()).padStart(2, '0')
+  return `${hh}:${mm}:${ss}`
+}
+
+function fmtDate(d) {
+  const yy = String(d.getFullYear())
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${yy}-${mm}-${dd}`
+}
+
 export default function App() {
+  const [authed, setAuthed] = useState(isAuthenticated())
   const [tab, setTab] = useState('analyze')
   const [stats, setStats] = useState(null)
   const [vulns, setVulns] = useState([])
@@ -20,134 +47,220 @@ export default function App() {
   const [patches, setPatches] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const prevTabRef = useRef(0)
+  const now = useClock()
 
+  // 401 이벤트 수신 — 인증 만료 시 로그인 화면으로 전환
   useEffect(() => {
-    setLoading(true)
-    Promise.all([
-      fetch(`${API}/stats`).then(r => r.json()),
-      fetch(`${API}/vulnerabilities`).then(r => r.json()),
-      fetch(`${API}/vulnerabilities/by-file`).then(r => r.json()),
-      fetch(`${API}/vulnerabilities/by-type`).then(r => r.json()),
-      fetch(`${API}/patches`).then(r => r.json()),
-    ])
-      .then(([s, v, f, t, p]) => {
-        setStats(s)
-        setVulns(v.vulnerabilities || [])
-        setByFile(f.files || [])
-        setByType(t.types || [])
-        setPatches(p.patches || [])
-        setLoading(false)
-      })
-      .catch(e => {
-        setError(`API 연결 실패: ${e.message}. FastAPI 서버가 실행 중인지 확인해주세요.`)
-        setLoading(false)
-      })
+    const handler = () => setAuthed(false)
+    window.addEventListener('dallo:auth-required', handler)
+    return () => window.removeEventListener('dallo:auth-required', handler)
   }, [])
 
-  const refreshData = () => {
+  const handleLogout = useCallback(() => {
+    clearApiKey()
+    setAuthed(false)
+  }, [])
+
+  const fetchAll = () => {
     Promise.all([
-      fetch(`${API}/stats`).then(r => r.json()),
-      fetch(`${API}/vulnerabilities`).then(r => r.json()),
-      fetch(`${API}/vulnerabilities/by-file`).then(r => r.json()),
-      fetch(`${API}/vulnerabilities/by-type`).then(r => r.json()),
-      fetch(`${API}/patches`).then(r => r.json()),
+      apiFetch(`${API}/stats`).then(r => r.json()),
+      apiFetch(`${API}/vulnerabilities`).then(r => r.json()),
+      apiFetch(`${API}/vulnerabilities/by-file`).then(r => r.json()),
+      apiFetch(`${API}/vulnerabilities/by-type`).then(r => r.json()),
+      apiFetch(`${API}/patches`).then(r => r.json()),
     ]).then(([s, v, f, t, p]) => {
       setStats(s)
       setVulns(v.vulnerabilities || [])
       setByFile(f.files || [])
       setByType(t.types || [])
       setPatches(p.patches || [])
-    }).catch(() => {})
+      setLoading(false)
+    }).catch(e => {
+      setError(`API_OFFLINE: ${e.message} — start with: $ python start.py`)
+      setLoading(false)
+    })
   }
 
+  useEffect(() => {
+    if (!authed) return
+    setLoading(true)
+    fetchAll()
+  }, [authed])
+
+  if (!authed) {
+    return <LoginView onLogin={() => setAuthed(true)} />
+  }
+
+  // Tabs as command-line subcommands
   const tabs = [
-    { id: 'analyze', label: '🔍 코드 분석' },
-    { id: 'dashboard', label: '📊 대시보드' },
-    { id: 'vulns', label: '🛡️ 취약점 목록' },
-    { id: 'patches', label: '🤖 AI 수정안' },
-    { id: 'deps', label: '📦 의존성 검사' },
-    { id: 'report', label: '📋 리포트' },
-    { id: 'history', label: '🕐 분석 이력' },
+    { id: 'analyze',   num: '01', cmd: 'scan',     ko: '분석' },
+    { id: 'dashboard', num: '02', cmd: 'stats',    ko: '대시보드' },
+    { id: 'vulns',     num: '03', cmd: 'findings', ko: '취약점' },
+    { id: 'patches',   num: '04', cmd: 'patches',  ko: '수정안' },
+    { id: 'deps',      num: '05', cmd: 'deps',     ko: '의존성' },
+    { id: 'report',    num: '06', cmd: 'report',   ko: '리포트' },
+    { id: 'history',   num: '07', cmd: 'log',      ko: '이력' },
   ]
 
+  const status = error ? 'OFFLINE' : loading ? 'BOOTING' : 'READY'
+  const statusColor = error ? '#ff3d24' : loading ? '#ffb000' : '#0a0a0a'
+  const totalIssues = stats?.total_issues ?? '--'
+
   return (
-    <div style={{ minHeight: '100vh' }}>
-      {/* Header */}
-      <header style={{
-        background: '#1e293b',
-        borderBottom: '1px solid #334155',
-        padding: '16px 32px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ fontSize: 24 }}>🛡️</span>
-          <h1 style={{ fontSize: 20, fontWeight: 700 }}>Dallo DevSecOps</h1>
+    <>
+      {/* ============= STATUS BAR ============= */}
+      <div className="statusbar">
+        <span className="statusbar__cell">
+          <span className="statusbar__blink" />
+          dallo.sec / v0.4.1
+        </span>
+        <span className="statusbar__cell">{fmtDate(now)}</span>
+        <span className="statusbar__cell">{fmtTime(now)} KST</span>
+        <span className="statusbar__cell">PID 0x{Math.floor(Math.random() * 0xffff).toString(16).padStart(4, '0').toUpperCase()}</span>
+        <span className="statusbar__cell" style={{ marginLeft: 'auto' }}>
+          STATE: <span style={{ background: statusColor, color: status === 'READY' ? '#0a0a0a' : '#fff', padding: '0 6px' }}>{status}</span>
+        </span>
+        <span className="statusbar__cell">ISSUES {totalIssues}</span>
+        <span className="statusbar__cell" style={{ cursor: 'pointer' }} onClick={handleLogout} title="로그아웃">
+          [LOGOUT]
+        </span>
+      </div>
+
+      {/* ============= MASTHEAD ============= */}
+      <header className="app-header">
+        <div className="masthead">
+          <div className="masthead__top">
+            <div>
+              <div className="masthead__id">
+                <span className="masthead__bracket">[</span>
+                <h1 className="masthead__wordmark">
+                  dallo<span className="dim">.</span><span className="accent">sec</span>
+                  <span className="masthead__caret"></span>
+                </h1>
+                <span className="masthead__bracket">]</span>
+              </div>
+              <div style={{
+                fontFamily: 'var(--font-mono)',
+                fontSize: 10,
+                color: 'var(--ink-dim)',
+                marginTop: 8,
+                textTransform: 'uppercase',
+                letterSpacing: '0.14em',
+                paddingLeft: 22,
+              }}>
+                # static analysis · llm patch synthesis · audit trail
+              </div>
+            </div>
+
+            <div className="masthead__meta">
+              <div>uptime <strong>{Math.floor((now - new Date(now.getFullYear(), now.getMonth(), now.getDate())) / 1000 / 60)}m</strong></div>
+              <div>build <strong>2026.04.09</strong></div>
+              <div>llm <strong>gemini-2.0-flash-lite</strong></div>
+              <div>tty <strong>/dev/dallo</strong></div>
+            </div>
+          </div>
+
+          <nav className="masthead__nav app-header__nav">
+            <div className="tab-bar">
+              {tabs.map(t => (
+                <button
+                  key={t.id}
+                  onClick={() => setTab(t.id)}
+                  className={`tab-btn ${tab === t.id ? 'tab-btn--active' : ''}`}
+                >
+                  <span className="tab-btn__num">{t.num}</span>
+                  {t.cmd}
+                </button>
+              ))}
+            </div>
+          </nav>
         </div>
-        <nav style={{ display: 'flex', gap: 4 }}>
-          {tabs.map(t => (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              style={{
-                padding: '8px 20px',
-                borderRadius: 8,
-                border: 'none',
-                cursor: 'pointer',
-                fontSize: 14,
-                fontWeight: 500,
-                background: tab === t.id ? '#3b82f6' : 'transparent',
-                color: tab === t.id ? '#fff' : '#94a3b8',
-                transition: 'all 0.2s',
-              }}
-            >
-              {t.label}
-            </button>
-          ))}
-        </nav>
       </header>
 
-      {/* Content */}
-      <main style={{ maxWidth: 1280, margin: '0 auto', padding: '24px 32px' }}>
+      {/* ============= MAIN ============= */}
+      <main className="app-main">
         {error && (
-          <div style={{
-            background: '#7f1d1d',
-            border: '1px solid #991b1b',
-            borderRadius: 8,
-            padding: 16,
-            marginBottom: 24,
-          }}>
-            ⚠️ {error}
-          </div>
+          <div className="fade-in alert alert--danger">{error}</div>
         )}
 
         {loading ? (
-          <div style={{ textAlign: 'center', padding: 80, color: '#64748b' }}>
-            불러오는 중...
+          <div style={{
+            textAlign: 'center',
+            padding: '120px 20px',
+            color: 'var(--ink-dim)',
+            fontFamily: 'var(--font-mono)',
+            fontSize: 11,
+            textTransform: 'uppercase',
+            letterSpacing: '0.14em',
+          }}>
+            <div className="loader" />
+            <div>$ booting analyzers</div>
           </div>
         ) : (
-          <>
-            {tab === 'analyze' && (
-              <AnalyzeView onComplete={refreshData} />
-            )}
-            {tab === 'dashboard' && (
-              <>
-                <StatsCards stats={stats} />
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24, marginTop: 24 }}>
-                  <FileChart data={byFile} />
-                  <TypeChart data={byType} />
-                </div>
-              </>
-            )}
-            {tab === 'vulns' && <VulnTable vulns={vulns} />}
-            {tab === 'patches' && <PatchView patches={patches} />}
-            {tab === 'deps' && <DependencyView />}
-            {tab === 'report' && <ReportView />}
-            {tab === 'history' && <HistoryView />}
-          </>
+          (() => {
+            const tabIndex = tabs.findIndex(t => t.id === tab)
+            const directionClass = tabIndex >= prevTabRef.current ? 'tab-enter-right' : 'tab-enter-left'
+            prevTabRef.current = tabIndex
+            const currentChapter = tabs[tabIndex]
+            return (
+              <div className={directionClass} key={tab}>
+                {currentChapter && tab !== 'analyze' && (
+                  <div className="chapter-label">
+                    {currentChapter.num} / {currentChapter.cmd}
+                  </div>
+                )}
+
+                {tab === 'analyze' && <AnalyzeView onComplete={fetchAll} />}
+                {tab === 'dashboard' && (
+                  <>
+                    <div className="page-header">
+                      <h1 className="page-title">
+                        <em>$</em>&nbsp;stats
+                      </h1>
+                      <p className="page-subtitle">
+                        snapshot of the most recent audit — counts, ratios, current state
+                      </p>
+                    </div>
+                    <StatsCards stats={stats} />
+                    <hr className="rule-double" />
+                    <div className="dashboard-grid">
+                      <FileChart data={byFile} />
+                      <TypeChart data={byType} />
+                    </div>
+                  </>
+                )}
+                {tab === 'vulns' && <VulnTable vulns={vulns} />}
+                {tab === 'patches' && <PatchView patches={patches} />}
+                {tab === 'deps' && <DependencyView />}
+                {tab === 'report' && <ReportView />}
+                {tab === 'history' && <HistoryView />}
+              </div>
+            )
+          })()
         )}
+
+        {/* Footer status line */}
+        <footer style={{
+          marginTop: 80,
+          paddingTop: 14,
+          borderTop: '1px solid var(--rule-hot)',
+          fontFamily: 'var(--font-mono)',
+          fontSize: 10,
+          color: 'var(--ink-faint)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: 12,
+          textTransform: 'uppercase',
+          letterSpacing: '0.14em',
+        }}>
+          <span>-- {tab.toUpperCase()} --</span>
+          <span>L1 · C1 · UTF-8 · UNIX · NOEOL</span>
+          <span>:wq</span>
+        </footer>
       </main>
-    </div>
+    </>
   )
 }

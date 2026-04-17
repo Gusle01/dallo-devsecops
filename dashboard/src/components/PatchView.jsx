@@ -1,19 +1,11 @@
 import React, { useState } from 'react'
+import { STATUS, COLORS, alpha, rgba } from '../colors'
 
-const STATUS_COLORS = {
-  verified: '#22c55e',
-  generated: '#3b82f6',
-  failed: '#ef4444',
-  pending: '#64748b',
-}
-
-const STATUS_LABELS = {
-  verified: '검증 완료',
-  generated: '생성됨',
-  failed: '실패',
-  'PatchStatus.VERIFIED': '검증 완료',
-  'PatchStatus.GENERATED': '생성됨',
-  'PatchStatus.FAILED': '실패',
+const STATUS_CONFIG = {
+  verified:  { color: STATUS.verified,  label: '검증 완료', icon: '✓' },
+  generated: { color: STATUS.generated, label: '생성됨',    icon: '◆' },
+  failed:    { color: STATUS.failed,    label: '실패',      icon: '✕' },
+  pending:   { color: STATUS.pending,   label: '대기중',    icon: '◷' },
 }
 
 function getStatus(patch) {
@@ -26,18 +18,22 @@ export default function PatchView({ patches }) {
 
   if (patches.length === 0) {
     return (
-      <div style={{
-        background: '#1e293b',
-        border: '1px solid #334155',
-        borderRadius: 12,
-        padding: 60,
-        textAlign: 'center',
-        color: '#64748b',
-      }}>
-        <div style={{ fontSize: 40, marginBottom: 16 }}>🤖</div>
-        <div style={{ fontSize: 16 }}>AI 수정안이 없습니다.</div>
-        <div style={{ fontSize: 13, marginTop: 8 }}>
-          코드 분석을 실행하면 AI 수정안이 생성됩니다.
+      <div>
+        <div className="page-header">
+          <h1 className="page-title">
+            <em>$</em>&nbsp;patches <span style={{ color: 'var(--ink-faint)' }}>--list</span>
+          </h1>
+          <p className="page-subtitle">
+            llm-drafted patches · awaiting review · 0 records
+          </p>
+        </div>
+
+        <div className="empty-state">
+          <div className="empty-state__icon">∅</div>
+          <div className="empty-state__title">no patches on file</div>
+          <div className="empty-state__description">
+            run a scan with --llm to populate this register
+          </div>
         </div>
       </div>
     )
@@ -45,201 +41,213 @@ export default function PatchView({ patches }) {
 
   return (
     <div>
-      <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 16 }}>
-        AI 수정 제안 ({patches.length}건)
-      </h2>
+      <div className="page-header">
+        <h1 className="page-title">
+          The <em style={{ fontStyle: 'italic', color: 'var(--rust)' }}>Remedies</em>,
+          <br/>Drafted by Hand.
+        </h1>
+        <p className="page-subtitle">
+          {patches.length} record(s) returned · llm drafts with revalidation status
+        </p>
+      </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ display: 'flex', flexDirection: 'column' }}>
         {patches.map((p, i) => {
           const status = getStatus(p)
-          const color = STATUS_COLORS[status] || '#64748b'
+          const cfg = STATUS_CONFIG[status] || STATUS_CONFIG.pending
+          const englishStatus = { verified: 'verified', generated: 'drafted', failed: 'failed', pending: 'pending' }[status] || cfg.label
           const isOpen = selected === i
 
           return (
-            <div key={i} style={{
-              background: '#1e293b',
-              border: `1px solid ${isOpen ? color + '60' : '#334155'}`,
-              borderRadius: 12,
-              overflow: 'hidden',
-            }}>
-              {/* 헤더 */}
+            <article
+              key={i}
+              className="fade-in"
+              style={{
+                borderTop: '1px solid var(--rule)',
+                borderBottom: i === patches.length - 1 ? '1px solid var(--rule)' : 'none',
+                animationDelay: `${i * 0.04}s`,
+                animationFillMode: 'backwards',
+              }}
+            >
+              {/* Header */}
               <div
                 onClick={() => setSelected(isOpen ? null : i)}
                 style={{
-                  padding: '14px 20px',
+                  padding: '20px 0',
                   cursor: 'pointer',
                   display: 'flex',
-                  alignItems: 'center',
+                  alignItems: 'baseline',
                   justifyContent: 'space-between',
+                  gap: 18,
+                  flexWrap: 'wrap',
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, flex: 1, minWidth: 0 }}>
                   <span style={{
-                    display: 'inline-block',
-                    width: 8, height: 8,
-                    borderRadius: '50%',
-                    background: color,
-                  }} />
-                  <span style={{ fontFamily: 'monospace', fontSize: 13, color: '#94a3b8' }}>
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: 14,
+                    fontWeight: 800,
+                    color: cfg.color,
+                    minWidth: 36,
+                  }}>
+                    [{String(i + 1).padStart(2, '0')}]
+                  </span>
+                  <span style={{
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: 10,
+                    color: 'var(--cyan)',
+                    flexShrink: 0,
+                  }}>
                     {p.rule_id || p.vulnerability_id}
                   </span>
-                  <span style={{ fontSize: 14 }}>{p.title || ''}</span>
+                  <span style={{
+                    fontSize: 12,
+                    color: 'var(--ink)',
+                    fontWeight: 500,
+                    fontFamily: 'var(--font-mono)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    flex: 1,
+                  }}>
+                    {p.title || ''}
+                  </span>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexShrink: 0 }}>
                   {p.file_path && (
-                    <span style={{ fontFamily: 'monospace', fontSize: 12, color: '#64748b' }}>
+                    <span style={{
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: 10,
+                      color: 'var(--ink-faint)',
+                    }}>
                       {p.file_path.split('/').pop()}:{p.line_number}
                     </span>
                   )}
-                  <span style={{
-                    padding: '3px 10px',
-                    borderRadius: 20,
-                    fontSize: 11,
-                    fontWeight: 600,
-                    background: `${color}20`,
-                    color: color,
-                    border: `1px solid ${color}40`,
+                  <span className={`badge-status badge-status--${status}`} style={{
+                    flexShrink: 0,
+                    color: cfg.color,
                   }}>
-                    {STATUS_LABELS[p.status] || status}
+                    {englishStatus}
                   </span>
                 </div>
               </div>
 
-              {/* 상세 */}
+              {/* Detail */}
               {isOpen && (
-                <div style={{ padding: '0 20px 20px', borderTop: '1px solid #334155' }}>
-                  {/* 수정 근거 */}
+                <div className="expand-in" style={{
+                  padding: '4px 0 28px',
+                  borderTop: '1px dotted var(--rule)',
+                }}>
                   {p.explanation && (
                     <div style={{
-                      margin: '16px 0',
-                      padding: 12,
-                      background: '#0f172a',
-                      borderRadius: 8,
-                      fontSize: 13,
+                      margin: '18px 0',
+                      padding: '14px 18px',
+                      background: 'var(--paper-deep)',
+                      borderRadius: 0,
+                      fontSize: 14,
                       lineHeight: 1.7,
-                      color: '#cbd5e1',
-                      borderLeft: `3px solid ${color}`,
+                      color: 'var(--ink-soft)',
+                      borderLeft: `2px solid ${cfg.color}`,
+                      fontStyle: 'italic',
+                      fontFamily: 'var(--font-body)',
+                      maxWidth: '64ch',
                     }}>
                       {p.explanation}
                     </div>
                   )}
 
-                  {/* 원본 vs 수정 코드 */}
                   {p.fixed_code && (
                     <div>
                       <div style={{
                         display: 'flex',
-                        gap: 4,
-                        marginBottom: 8,
+                        gap: 6,
+                        marginBottom: 10,
+                        flexWrap: 'wrap',
                       }}>
-                        <span style={{
-                          fontSize: 12,
-                          fontWeight: 600,
-                          color: '#22c55e',
-                          background: '#22c55e15',
-                          padding: '4px 10px',
-                          borderRadius: 6,
-                        }}>
-                          🤖 AI 수정안
+                        <span className="badge-tag badge-tag--brand">
+                          AI 수정안
                         </span>
                         {p.syntax_valid && (
-                          <span style={{ fontSize: 11, padding: '4px 8px', background: '#22c55e15', color: '#22c55e', borderRadius: 6 }}>
+                          <span className="badge-tag badge-tag--success">
                             ✓ 문법 검증 통과
                           </span>
                         )}
                         {p.test_passed && (
-                          <span style={{ fontSize: 11, padding: '4px 8px', background: '#3b82f615', color: '#3b82f6', borderRadius: 6 }}>
+                          <span className="badge-tag badge-tag--info">
                             ✓ 테스트 통과
                           </span>
                         )}
                         {p.security_revalidation && p.security_revalidation.passed && (
-                          <span style={{ fontSize: 11, padding: '4px 8px', background: '#22c55e15', color: '#22c55e', borderRadius: 6 }}>
+                          <span className="badge-tag badge-tag--success">
                             ✓ 보안 재검증 통과
                           </span>
                         )}
                         {p.security_revalidation && !p.security_revalidation.passed && !p.security_revalidation.error && (
-                          <span style={{ fontSize: 11, padding: '4px 8px', background: '#ef444415', color: '#ef4444', borderRadius: 6 }}>
-                            ✗ 새 취약점 발견 ({p.security_revalidation.introduced_count}건)
+                          <span className="badge-tag badge-tag--danger">
+                            ✕ 새 취약점 {p.security_revalidation.introduced_count}건
                           </span>
                         )}
                       </div>
 
-                      {/* 원본 코드 */}
                       {p.original_code && (
                         <>
-                          <div style={{ fontSize: 12, color: '#ef4444', fontWeight: 600, marginBottom: 4, marginTop: 12 }}>
-                            원본 코드 (취약):
+                          <div className="section-label" style={{ color: 'var(--blood)', marginTop: 18 }}>
+                            ── original.code <span style={{ color: 'var(--ink-faint)' }}>// vulnerable</span>
                           </div>
-                          <pre style={{
-                            background: '#0f172a',
-                            padding: 14,
-                            borderRadius: 8,
-                            fontSize: 12,
-                            lineHeight: 1.6,
-                            overflow: 'auto',
-                            color: '#fca5a5',
-                            border: '1px solid #7f1d1d',
-                            maxHeight: 300,
-                          }}>
+                          <pre className="code-block code-block--danger">
                             {p.original_code}
                           </pre>
                         </>
                       )}
 
-                      {/* 수정된 코드 */}
-                      <div style={{ fontSize: 12, color: '#22c55e', fontWeight: 600, marginBottom: 4, marginTop: 12 }}>
-                        수정된 코드:
+                      <div className="section-label" style={{ color: 'var(--phosphor)', marginTop: 18 }}>
+                        ── patched.code <span style={{ color: 'var(--ink-faint)' }}>// llm draft</span>
                       </div>
-                      <pre style={{
-                        background: '#0f172a',
-                        padding: 14,
-                        borderRadius: 8,
-                        fontSize: 12,
-                        lineHeight: 1.6,
-                        overflow: 'auto',
-                        color: '#86efac',
-                        border: '1px solid #14532d',
-                        maxHeight: 400,
-                      }}>
+                      <pre className="code-block code-block--success">
                         {p.fixed_code}
                       </pre>
 
-                      {/* 보안 재검증 결과 */}
                       {p.security_revalidation && (
                         <div style={{
-                          marginTop: 12,
-                          padding: 12,
-                          background: p.security_revalidation.passed ? '#052e16' : '#450a0a',
-                          border: `1px solid ${p.security_revalidation.passed ? '#14532d' : '#7f1d1d'}`,
-                          borderRadius: 8,
-                          fontSize: 12,
+                          marginTop: 16,
+                          padding: '16px 20px',
+                          background: 'var(--paper-deep)',
+                          border: '1px solid var(--rule)',
+                          borderLeft: `2px solid ${p.security_revalidation.passed ? 'var(--olive)' : 'var(--rust)'}`,
+                          borderRadius: 0,
+                          fontSize: 13,
+                          fontFamily: 'var(--font-body)',
                         }}>
                           <div style={{
-                            fontWeight: 600,
-                            marginBottom: 8,
-                            color: p.security_revalidation.passed ? '#22c55e' : '#ef4444',
+                            fontWeight: 800,
+                            marginBottom: 10,
+                            color: p.security_revalidation.passed ? 'var(--phosphor)' : 'var(--blood)',
+                            fontSize: 12,
+                            fontFamily: 'var(--font-mono)',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.14em',
                           }}>
                             {p.security_revalidation.passed
-                              ? '🛡️ 보안 재검증: 통과'
-                              : '⚠️ 보안 재검증: 실패'}
+                              ? '[OK] revalidation.passed'
+                              : '[FAIL] revalidation.regressed'}
                           </div>
-                          <div style={{ color: '#94a3b8', lineHeight: 1.8 }}>
-                            <div>분석 도구: {p.security_revalidation.tool_used}</div>
+                          <div style={{ color: 'var(--ink-dim)', lineHeight: 1.7, fontFamily: 'var(--font-mono)', fontSize: 11 }}>
                             <div>
-                              원본: {p.security_revalidation.original_vuln_count}건 →
-                              수정 후: {p.security_revalidation.fixed_vuln_count}건
+                              tool: <span style={{ color: 'var(--cyan)' }}>{p.security_revalidation.tool_used}</span>{' '}
+                              · before: <span style={{ color: 'var(--ink)' }}>{p.security_revalidation.original_vuln_count}</span>{' '}
+                              → after: <span style={{ color: 'var(--ink)' }}>{p.security_revalidation.fixed_vuln_count}</span>
                               {p.security_revalidation.removed_count > 0 && (
-                                <span style={{ color: '#22c55e' }}>
-                                  {' '}({p.security_revalidation.removed_count}건 제거됨)
+                                <span style={{ color: 'var(--phosphor)' }}>
+                                  {' '}(-{p.security_revalidation.removed_count})
                                 </span>
                               )}
                             </div>
                             {p.security_revalidation.introduced_count > 0 && (
-                              <div style={{ color: '#ef4444', marginTop: 4 }}>
-                                새로 도입된 취약점:
+                              <div style={{ color: 'var(--blood)', marginTop: 8 }}>
+                                {'>'} regression introduced:
                                 {p.security_revalidation.new_vulnerabilities?.map((v, vi) => (
-                                  <div key={vi} style={{ marginLeft: 12, fontSize: 11 }}>
-                                    - [{v.severity}] {v.rule_id}: {v.title}
+                                  <div key={vi} style={{ marginLeft: 14, fontSize: 11, marginTop: 2 }}>
+                                    {'  '}[{v.severity}] {v.rule_id} :: {v.title}
                                   </div>
                                 ))}
                               </div>
@@ -251,7 +259,7 @@ export default function PatchView({ patches }) {
                   )}
                 </div>
               )}
-            </div>
+            </article>
           )
         })}
       </div>

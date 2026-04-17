@@ -69,6 +69,9 @@ class VulnerabilityReport:
     cwe_id: Optional[str] = None       # CWE ID
     language: str = "python"           # 코드 언어 (python, java, javascript 등)
     more_info: str = ""                # 참고 URL
+    risk_level: str = ""               # critical/high/medium/low (위험도 산정 결과)
+    cvss_score: float = 0.0            # CVSS 스코어 (0~10)
+    duplicate_group_id: str = ""       # 중복 그룹 ID (중복 제거 후 할당)
     created_at: str = ""               # 탐지 시각
 
     def __post_init__(self):
