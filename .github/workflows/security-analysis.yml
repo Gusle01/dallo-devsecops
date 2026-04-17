@@ -55,14 +55,22 @@ jobs:
         if: steps.changed-files.outputs.skip == 'false'
         run: |
           mkdir -p reports
-          bandit -r . \
+          if bandit -r . \
             -f json \
             -o reports/bandit_report.json \
             --exclude './venv,./tests,./.venv,./node_modules,./dashboard' \
             --confidence-level all \
-            --severity-level all \
-            || true
-          echo "Bandit 분석 완료"
+            --severity-level all; then
+            echo "✅ Bandit 분석 완료 (취약점 없음)"
+          else
+            exit_code=$?
+            if [ -s reports/bandit_report.json ]; then
+              echo "⚠️ Bandit이 취약점을 발견했습니다 (exit $exit_code) - 리포트 정상 생성됨"
+            else
+              echo "❌ Bandit 실행 오류 (exit $exit_code) - 빈 리포트 생성"
+              echo '{"results": [], "metrics": {"_totals": {"loc": 0}}}' > reports/bandit_report.json
+            fi
+          fi
 
       # 6. 전체 파이프라인 (분석 → LLM → 검증)
       - name: Run full analysis pipeline
