@@ -1,0 +1,17 @@
+Update Log
+
+1. Fixed DATABASE_URL fallback
+- Problem: Server crashed when .env had an empty DATABASE_URL value.
+- Cause: db/models.py passed an empty string directly to SQLAlchemy.
+- Fix: Changed DATABASE_URL loading to use SQLite when the env value is empty.
+- File: db/models.py
+
+2. Preserved scan progress across tab changes
+- Problem: Running scan state was reset when moving from scan to stats/findings/patches.
+- Cause: AnalyzeView was unmounted on every tab change, clearing local state and polling interval.
+- Fix: Kept AnalyzeView mounted and only hid it with display:none when another tab is active.
+- File: dashboard/src/App.jsx
+
+Verification
+- Confirmed DB initialization uses SQLite correctly.
+- Ran dashboard production build successfully with npm run build.

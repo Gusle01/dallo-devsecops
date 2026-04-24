@@ -204,14 +204,17 @@ export default function App() {
             prevTabRef.current = tabIndex
             const currentChapter = tabs[tabIndex]
             return (
-              <div className={directionClass} key={tab}>
-                {currentChapter && tab !== 'analyze' && (
-                  <div className="chapter-label">
-                    {currentChapter.num} / {currentChapter.cmd}
-                  </div>
-                )}
+              <>
+                <div style={{ display: tab === 'analyze' ? 'block' : 'none' }}>
+                  <AnalyzeView onComplete={fetchAll} />
+                </div>
+                <div className={directionClass} key={tab} style={{ display: tab === 'analyze' ? 'none' : 'block' }}>
+                  {currentChapter && (
+                    <div className="chapter-label">
+                      {currentChapter.num} / {currentChapter.cmd}
+                    </div>
+                  )}
 
-                {tab === 'analyze' && <AnalyzeView onComplete={fetchAll} />}
                 {tab === 'dashboard' && (
                   <>
                     <div className="page-header">
@@ -235,7 +238,8 @@ export default function App() {
                 {tab === 'deps' && <DependencyView />}
                 {tab === 'report' && <ReportView />}
                 {tab === 'history' && <HistoryView />}
-              </div>
+                </div>
+              </>
             )
           })()
         )}

@@ -46,7 +46,7 @@ _DB_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _SQLITE_PATH = os.path.join(_DB_DIR, "dallo.db")
 _SQLITE_URL = f"sqlite:///{_SQLITE_PATH}"
 
-DATABASE_URL = os.environ.get("DATABASE_URL", _SQLITE_URL)
+DATABASE_URL = os.environ.get("DATABASE_URL") or _SQLITE_URL
 
 def _create_engine():
     """PostgreSQL 우선, 실패 시 SQLite 폴백"""
