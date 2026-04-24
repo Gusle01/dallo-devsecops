@@ -1,17 +1,19 @@
-Update Log
+수정 내역
 
-1. Fixed DATABASE_URL fallback
-- Problem: Server crashed when .env had an empty DATABASE_URL value.
-- Cause: db/models.py passed an empty string directly to SQLAlchemy.
-- Fix: Changed DATABASE_URL loading to use SQLite when the env value is empty.
-- File: db/models.py
+2026-04-24
 
-2. Preserved scan progress across tab changes
-- Problem: Running scan state was reset when moving from scan to stats/findings/patches.
-- Cause: AnalyzeView was unmounted on every tab change, clearing local state and polling interval.
-- Fix: Kept AnalyzeView mounted and only hid it with display:none when another tab is active.
-- File: dashboard/src/App.jsx
+1. DATABASE_URL 빈 값 처리 수정
+- 문제: .env 파일에서 DATABASE_URL이 빈 값일 때 서버 실행 중 SQLAlchemy URL 파싱 오류가 발생함.
+- 원인: db/models.py에서 빈 문자열을 그대로 create_engine()에 전달하고 있었음.
+- 수정: DATABASE_URL 환경변수가 비어 있으면 SQLite 기본 경로를 사용하도록 변경함.
+- 수정 파일: db/models.py
 
-Verification
-- Confirmed DB initialization uses SQLite correctly.
-- Ran dashboard production build successfully with npm run build.
+2. 분석 중 탭 이동 시 scan 상태 초기화 문제 수정
+- 문제: scan 실행 중 stats, findings, patches 등 다른 탭으로 이동하면 기존 scan 진행 상태가 초기화됨.
+- 원인: 탭 전환 시 AnalyzeView 컴포넌트가 언마운트되면서 내부 상태와 polling interval이 사라졌음.
+- 수정: AnalyzeView를 계속 마운트한 상태로 유지하고, scan 탭이 아닐 때는 화면에서만 숨기도록 변경함.
+- 수정 파일: dashboard/src/App.jsx
+
+검증
+- DATABASE_URL이 빈 값이어도 SQLite DB 초기화가 정상 동작하는 것을 확인함.
+- npm run build로 대시보드 빌드가 정상 완료되는 것을 확인함.
