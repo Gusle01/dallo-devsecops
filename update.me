@@ -60,3 +60,72 @@
 - 문제: Gateway provider를 추가했지만 기본값이 Gemini라서 사용자가 provider를 바꾸지 않으면 계속 Gemini quota 오류가 발생함.
 - 수정: API 요청 모델, Celery task, 파이프라인, 대시보드 기본 provider/model을 gateway/claude-sonnet-4-6 기준으로 변경함.
 - 수정 파일: api/server.py, api/tasks.py, analyzer/pipeline.py, dashboard/src/components/AnalyzeView.jsx, .env.example
+
+
+2026-05-09
+
+1. Red Team / Blue Team 보안 대응 시스템 구조 추가
+- 문제: 기존 프로젝트가 단순 보안 분석 도구 형태에 가까워, 공격 관점과 방어 관점의 흐름이 명확히 드러나지 않았음.
+- 수정: 취약점 탐지는 Red Team 관점으로 공격 벡터, 공격 시나리오, exploitability, impact를 보강하고, 패치 제안은 Blue Team 관점으로 방어 전략, 방어 결과, 잔여 위험을 보강하도록 구조를 추가함.
+- 추가: Attack Plan / Defense Plan / Red-Blue Summary / Attack Paths 개념을 도입함.
+- 수정 파일: shared/red_blue.py, shared/schemas.py, analyzer/pipeline.py, api/server.py, dashboard/src/App.jsx, dashboard/src/components/RedBlueView.jsx, README.md, CLAUDE.md
+
+2. LLM 호출 속도 개선 구조 추가
+- 문제: 취약점 분석 이후 모든 취약점을 반복적으로 LLM에 전달하면 처리 시간이 길어짐.
+- 수정: CVE/CWE/rule scope 기반 선택적 분석, max LLM target 제한, context 길이 제한, batch LLM 호출, LLM cache를 추가함.
+- 효과: 분석 대상 취약점 수와 프롬프트 문맥 길이를 줄이고, 같은 파일의 취약점은 묶어서 처리할 수 있게 됨.
+- 수정 파일: shared/llm_optimization.py, agent/llm_agent.py, analyzer/pipeline.py, api/server.py, api/tasks.py, config/config.yaml, dashboard/src/components/AnalyzeView.jsx, tests/test_cache_batch.py, tests/test_pipeline_integration.py
+
+3. CVE 중심 scope를 CWE/rule 중심 scope로 확장
+- 문제: 소스코드 취약점은 CVE보다 CWE나 rule ID가 더 잘 붙기 때문에, CVE 기반 필터만으로는 실제 코드 분석 범위를 조절하기 어려움.
+- 수정: CWE-89, CWE-78, CWE-79, CWE-288, CWE-502, CWE-22, CWE-798 등 기본 CWE scope를 추가하고, AUTH-BYPASS, SQLI 같은 alias도 처리하도록 변경함.
+- 수정 파일: shared/llm_optimization.py, config/config.yaml, dashboard/src/components/AnalyzeView.jsx, tests/test_cache_batch.py
+
+4. WebGoat 인증 우회 탐지 보강
+- 문제: WebGoat VerifyAccount처럼 userId 요청 파라미터를 신뢰해 계정 검증 세션을 설정하는 비즈니스 로직 취약점을 기존 live scan/full scan이 놓칠 수 있었음.
+- 수정: Java/Spring 코드에서 @RequestParam userId, verifyAccount(Integer.valueOf(userId)), account-verified-id 세션 저장 조합을 탐지하는 quick scan 및 heuristic rule을 추가함.
+- 수정 파일: api/server.py, analyzer/heuristic_runner.py, dashboard/src/components/AnalyzeView.jsx, tests/test_semgrep_runner.py
+
+5. Semgrep 룰셋 확장 및 Java SSRF custom rule 추가
+- 문제: WebGoat SSRFTask1 같은 Java/Spring benchmark 코드에서 기존 Semgrep auto 룰셋만으로 탐지 범위가 부족했음.
+- 수정: Semgrep 실행을 단일 auto config가 아니라 auto, p/security-audit, p/owasp-top-ten, p/java, p/findsecbugs, custom Java rule을 순차 실행하고 병합하도록 변경함.
+- 추가: WebGoat 스타일 SSRF URL 선택 패턴과 user-controlled URL sink를 탐지하는 custom rule을 추가함.
+- 수정 파일: analyzer/semgrep_runner.py, config/config.yaml, config/semgrep/custom-java-security.yml, tests/test_semgrep_runner.py
+
+6. live scan clean 상황에서도 LLM 재검토 기능 추가
+- 문제: live scan이나 정적 분석에서 취약점이 0건이면 LLM을 호출하지 않아, 룰셋이 놓친 취약점을 AI가 재검토할 기회가 없었음.
+- 수정: llm_patch가 켜져 있고 ai_audit_clean 옵션이 활성화되어 있으면, 정적 분석 결과가 0건이어도 LLM clean audit을 실행하도록 추가함.
+- 결과: LLM이 missed finding을 JSON 형태로 반환하고, 대시보드에서 LLM_CLEAN_AUDIT 상태와 발견 항목을 표시함.
+- 수정 파일: agent/llm_agent.py, analyzer/pipeline.py, api/server.py, api/tasks.py, dashboard/src/components/AnalyzeView.jsx, tests/test_cache_batch.py
+
+7. LLM clean audit 결과를 정식 취약점으로 승격
+- 문제: LLM clean audit이 취약점 5건을 찾아도 기존 vulnerabilities/summary에 반영되지 않아 대시보드 카운터가 TOT 00, HIGH 00으로 표시됨.
+- 수정: llm_audit.findings를 llm_audit tool 기반 VulnerabilityReport로 변환하고, summary, Red Team attack path, report에 포함되도록 변경함. 이전 저장 결과도 API 응답 단계에서 정규화하도록 보강함.
+- 수정 파일: analyzer/pipeline.py, api/server.py, dashboard/src/components/AnalyzeView.jsx
+
+8. open_report 무반응 문제 수정
+- 문제: 대시보드에서 open_report를 눌러도 반응이 없었음.
+- 원인: reports.report_generator 모듈이 존재하지 않아 /api/report/preview가 500 에러를 반환했고, 프론트는 오류를 화면에 표시하지 않았음.
+- 수정: ReportGenerator를 추가하여 Markdown/HTML 리포트를 생성하고, report preview가 full_result.json을 우선 사용하도록 변경함. 프론트는 팝업 차단을 피하기 위해 클릭 즉시 탭을 열고, 오류 발생 시 실패 메시지를 표시하도록 변경함.
+- 수정 파일: reports/report_generator.py, reports/__init__.py, api/server.py, dashboard/src/components/AnalyzeView.jsx, .gitignore
+
+9. Bandit 실행 fallback 추가
+- 문제: bandit 실행 파일이 PATH에 없으면 Python 분석이 실패할 수 있음.
+- 수정: bandit 명령어가 없을 때 현재 Python 환경의 python -m bandit 방식으로 fallback하도록 변경함.
+- 수정 파일: analyzer/bandit_runner.py
+
+10. 리포트 소스 파일 Git 추적 문제 수정
+- 문제: reports/ 전체가 .gitignore에 들어 있어 새로 만든 report_generator.py가 GitHub에 올라가지 않는 상태였음.
+- 수정: reports/* 결과물은 계속 무시하되, reports/*.py 소스 파일은 추적되도록 .gitignore를 수정함.
+- 수정 파일: .gitignore, reports/__init__.py, reports/report_generator.py
+
+검증
+- python py_compile로 주요 백엔드 파일 문법 검사를 통과함.
+- pytest 전체 테스트 104개가 통과함.
+- npm run build로 대시보드 빌드가 정상 완료됨.
+- /api/stats에서 LLM clean audit 결과가 total 5, high 3, medium 1, low 1로 반영되는 것을 확인함.
+- /api/report/preview에서 LLM clean audit finding 5건이 리포트에 포함되는 것을 확인함.
+
+GitHub 반영
+- 커밋: f005625 feat: add red blue ai audit workflow
+- 원격: https://github.com/Gusle01/dallo-devsecops
