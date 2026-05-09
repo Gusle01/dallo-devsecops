@@ -111,6 +111,32 @@ class TestPipelineOrder:
             assert 0 < v.cvss_score <= 10.0, \
                 f"{v.id}: cvss_score={v.cvss_score}"
 
+    def test_red_blue_summary_from_schema(self):
+        """AnalysisSession 결과에 Red/Blue 요약이 포함되는지 검증"""
+        from shared.schemas import AnalysisSession
+        from shared.red_blue import enrich_vulnerability
+
+        vulns = [enrich_vulnerability(v.to_dict()) for v in _make_vulns()]
+        session = AnalysisSession(
+            session_id="test_red_blue",
+            repo="oss/example",
+            pr_number=0,
+            commit_sha="local",
+            vulnerabilities=[
+                VulnerabilityReport(**v)
+                for v in vulns
+            ],
+            patches=[],
+        )
+        session.update_stats()
+        data = session.to_dict()
+
+        assert data["analysis_mode"] == "red_blue"
+        assert data["red_blue_summary"]["mode"] == "red_blue"
+        assert data["red_blue_summary"]["red_team"]["total_findings"] == 3
+        assert "attack_paths" in data["red_blue_summary"]
+        assert data["red_blue_summary"]["attack_paths"][0]["status"] == "OPEN"
+
     def test_empty_vulns_no_error(self):
         """취약점 0건이어도 에러 없이 동작"""
         from analyzer.deduplicator import deduplicate

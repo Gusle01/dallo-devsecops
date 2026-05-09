@@ -72,6 +72,13 @@ class VulnerabilityReport:
     risk_level: str = ""               # critical/high/medium/low (위험도 산정 결과)
     cvss_score: float = 0.0            # CVSS 스코어 (0~10)
     duplicate_group_id: str = ""       # 중복 그룹 ID (중복 제거 후 할당)
+    red_team_phase: str = "attack_surface_mapping"
+    attack_vector: str = ""            # Red Team 관점 공격 벡터
+    attack_scenario: str = ""          # 악용 가능 시나리오
+    exploitability: str = ""           # high/medium/low
+    security_impact: str = ""          # 예상 보안 영향
+    blue_team_strategy: str = ""       # 방어 방향
+    attack_plan: dict = field(default_factory=dict)
     created_at: str = ""               # 탐지 시각
 
     def __post_init__(self):
@@ -106,6 +113,11 @@ class PatchSuggestion:
     syntax_valid: Optional[bool] = None     # 문법 검사 통과 여부
     test_passed: Optional[bool] = None      # 테스트 통과 여부
     security_revalidation: Optional[dict] = None  # 보안 재검증 결과
+    blue_team_phase: str = "remediation"
+    defense_strategy: str = ""            # 수정/방어 전략
+    defense_outcome: str = ""             # drafted_defense / validated_defense / needs_review
+    residual_risk: str = ""               # low/medium/high/unknown
+    defense_plan: dict = field(default_factory=dict)
     created_at: str = ""
     verified_at: Optional[str] = None
 
@@ -168,7 +180,7 @@ class AnalysisSession:
         self.patches_verified = sum(1 for p in self.patches if p.status == PatchStatus.VERIFIED)
 
     def to_dict(self) -> dict:
-        return {
+        payload = {
             "session_id": self.session_id,
             "repo": self.repo,
             "pr_number": self.pr_number,
@@ -188,6 +200,16 @@ class AnalysisSession:
             "completed_at": self.completed_at,
             "duration_seconds": self.duration_seconds,
         }
+        try:
+            from shared.red_blue import build_red_blue_summary
+            payload["analysis_mode"] = "red_blue"
+            payload["red_blue_summary"] = build_red_blue_summary(
+                payload["vulnerabilities"],
+                payload["patches"],
+            )
+        except Exception:
+            payload["analysis_mode"] = "red_blue"
+        return payload
 
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), ensure_ascii=False, indent=2)

@@ -21,10 +21,10 @@ export default function PatchView({ patches }) {
       <div>
         <div className="page-header">
           <h1 className="page-title">
-            <em>$</em>&nbsp;patches <span style={{ color: 'var(--ink-faint)' }}>--list</span>
+            <em>$</em>&nbsp;defense <span style={{ color: 'var(--ink-faint)' }}>--list</span>
           </h1>
           <p className="page-subtitle">
-            llm-drafted patches · awaiting review · 0 records
+            blue team remediation actions · awaiting review · 0 records
           </p>
         </div>
 
@@ -32,7 +32,7 @@ export default function PatchView({ patches }) {
           <div className="empty-state__icon">∅</div>
           <div className="empty-state__title">no patches on file</div>
           <div className="empty-state__description">
-            run a scan with --llm to populate this register
+            run a redscan with LLM enabled to populate blue team actions
           </div>
         </div>
       </div>
@@ -43,11 +43,11 @@ export default function PatchView({ patches }) {
     <div>
       <div className="page-header">
         <h1 className="page-title">
-          The <em style={{ fontStyle: 'italic', color: 'var(--rust)' }}>Remedies</em>,
-          <br/>Drafted by Hand.
+          Blue <em style={{ fontStyle: 'italic', color: 'var(--cyan)' }}>Team</em>
+          <br/>Defense Actions.
         </h1>
         <p className="page-subtitle">
-          {patches.length} record(s) returned · llm drafts with revalidation status
+          {patches.length} record(s) returned · llm remediation with syntax and security revalidation
         </p>
       </div>
 
@@ -153,6 +153,31 @@ export default function PatchView({ patches }) {
                       maxWidth: '64ch',
                     }}>
                       {p.explanation}
+                    </div>
+                  )}
+
+                  {(p.defense_strategy || p.defense_outcome || p.residual_risk) && (
+                    <div style={{
+                      margin: '12px 0 18px',
+                      padding: '12px 16px',
+                      background: 'var(--paper-deep)',
+                      border: '1px solid var(--rule)',
+                      borderLeft: '2px solid var(--cyan)',
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: 11,
+                      color: 'var(--ink-dim)',
+                      lineHeight: 1.7,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.08em',
+                    }}>
+                      <div>phase: <span style={{ color: 'var(--cyan)' }}>{p.blue_team_phase || 'remediation'}</span></div>
+                      <div>outcome: <span style={{ color: 'var(--phosphor)' }}>{p.defense_outcome || 'drafted_defense'}</span></div>
+                      <div>residual_risk: <span style={{ color: 'var(--amber)' }}>{p.residual_risk || 'unknown'}</span></div>
+                      {p.defense_strategy && (
+                        <div style={{ textTransform: 'none', letterSpacing: 0, marginTop: 8, color: 'var(--ink-soft)' }}>
+                          {p.defense_strategy}
+                        </div>
+                      )}
                     </div>
                   )}
 

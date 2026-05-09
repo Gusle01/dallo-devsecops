@@ -25,6 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from shared.schemas import VulnerabilityReport, PatchSuggestion, PatchStatus
 from shared.masking import DataMasker
+from agent.cache import LLMCache
 from agent.provider_factory import get_provider
 from agent.providers.base import LLMProvider, SYSTEM_PROMPT
 
@@ -50,6 +51,7 @@ class DalloAgent:
     ):
         self.max_retries = max_retries
         self._masker = DataMasker()
+        self._cache = LLMCache()
 
         # Provider Factory를 통해 프로바이더 인스턴스 생성
         self._provider: LLMProvider = get_provider(
@@ -95,6 +97,16 @@ class DalloAgent:
 
         for attempt in range(self.max_retries + 1):
             try:
+                cached = self._cache.get(code_to_mask, vuln.rule_id, prompt)
+                if cached:
+                    return PatchSuggestion(
+                        vulnerability_id=vuln.id,
+                        fixed_code=cached.get("fixed_code", ""),
+                        explanation=f"{cached.get('explanation', '')}\n\n[CACHE] reused previous LLM remediation".strip(),
+                        fix_type=cached.get("fix_type", "recommended"),
+                        status=PatchStatus.GENERATED,
+                    )
+
                 response = self._provider.call(prompt, system=SYSTEM_PROMPT)
                 fixed_code, explanation = self._parse_response(response)
 
@@ -106,13 +118,15 @@ class DalloAgent:
                 if not fixed_code.strip():
                     raise ValueError("LLM이 빈 코드를 반환했습니다.")
 
-                return PatchSuggestion(
+                patch = PatchSuggestion(
                     vulnerability_id=vuln.id,
                     fixed_code=fixed_code,
                     explanation=explanation,
                     fix_type="recommended",
                     status=PatchStatus.GENERATED,
                 )
+                self._cache.set(code_to_mask, vuln.rule_id, prompt, patch.to_dict())
+                return patch
             except Exception as e:
                 err_str = str(e)
                 logger.warning(f"[시도 {attempt+1}/{self.max_retries+1}] 수정안 생성 실패: {e}")
@@ -185,8 +199,13 @@ class DalloAgent:
         self,
         vulnerabilities: list[VulnerabilityReport],
         multi: bool = False,
+        batch: bool = False,
+        batch_size: int = 5,
     ) -> list[PatchSuggestion]:
         """여러 취약점에 대해 일괄 수정안 생성"""
+        if batch and not multi:
+            return self.generate_patches_batch(vulnerabilities, batch_size=batch_size)
+
         patches = []
         for i, vuln in enumerate(vulnerabilities):
             logger.info(f"[{i+1}/{len(vulnerabilities)}] {vuln.rule_id} ({vuln.severity}) 처리 중...")
@@ -198,6 +217,93 @@ class DalloAgent:
                 patches.append(patch)
             logger.info(f"  → {len(patches)}건 생성됨")
         return patches
+
+    def generate_patches_batch(
+        self,
+        vulnerabilities: list[VulnerabilityReport],
+        batch_size: int = 5,
+    ) -> list[PatchSuggestion]:
+        """같은 파일의 취약점을 묶어 LLM 호출 횟수를 줄입니다."""
+        from agent.batch_processor import group_by_file, build_batch_prompt, parse_batch_response
+
+        patches: list[PatchSuggestion] = []
+        for batch in group_by_file(vulnerabilities, batch_size=batch_size):
+            if len(batch) == 1:
+                patches.append(self.generate_patch(batch[0]))
+                continue
+
+            lang = self._detect_language(batch[0])
+            prompt = build_batch_prompt(batch, lang=lang)
+            cache_key_content = "\n\n".join(v.function_code or v.code_snippet or "" for v in batch)
+            cache_key_rule = "+".join(v.rule_id for v in batch)
+            cached = self._cache.get(cache_key_content, cache_key_rule, prompt)
+            if cached:
+                cached_patches = []
+                for item in cached.get("patches", []):
+                    cached_patches.append(PatchSuggestion(
+                        vulnerability_id=item.get("vulnerability_id", item.get("vuln_id", "")),
+                        fixed_code=item.get("fixed_code", ""),
+                        explanation=f"{item.get('explanation', '')}\n\n[CACHE] reused previous batch remediation".strip(),
+                        fix_type=item.get("fix_type", "recommended"),
+                        status=PatchStatus.GENERATED,
+                    ))
+                patches.extend(cached_patches)
+                continue
+
+            try:
+                response = self._provider.call(prompt, system=SYSTEM_PROMPT)
+                parsed = parse_batch_response(response, batch)
+                parsed_ids = {p.vulnerability_id for p in parsed}
+
+                # If the model omitted an item, fall back only for the missing
+                # vulnerabilities instead of redoing the whole batch.
+                missing = [v for v in batch if v.id not in parsed_ids]
+                for vuln in missing:
+                    parsed.append(self.generate_patch(vuln))
+
+                self._cache.set(
+                    cache_key_content,
+                    cache_key_rule,
+                    prompt,
+                    {"patches": [p.to_dict() for p in parsed]},
+                )
+                patches.extend(parsed)
+            except Exception as e:
+                logger.warning(f"[BATCH] 배치 처리 실패 — 개별 처리로 fallback: {e}")
+                for vuln in batch:
+                    patches.append(self.generate_patch(vuln))
+
+        return patches
+
+    def audit_code(
+        self,
+        code: str,
+        filename: str,
+        language: str = "unknown",
+        max_chars: int = 4000,
+    ) -> dict:
+        """
+        정적 분석에서 탐지되지 않은 코드에 대해 LLM 보안 재검토를 수행합니다.
+
+        패치 생성이 아니라 missed finding 탐지가 목적이므로, 응답은 구조화된
+        감사 결과만 반환하고 전체 수정 코드는 요청하지 않습니다.
+        """
+        from agent.response_parser import extract_json_from_response
+
+        trimmed = (code or "")[:max_chars]
+        if len(code or "") > max_chars:
+            trimmed += "\n\n/* context trimmed for clean-code LLM audit */"
+
+        prompt = self._build_audit_prompt(trimmed, filename, language)
+        cached = self._cache.get(trimmed, "LLM-AUDIT", prompt)
+        if cached:
+            return {**cached, "cached": True}
+
+        response = self._provider.call(prompt, system=SYSTEM_PROMPT)
+        parsed = extract_json_from_response(response)
+        audit = self._normalize_audit_response(parsed, response)
+        self._cache.set(trimmed, "LLM-AUDIT", prompt, audit)
+        return audit
 
     def _detect_language(self, vuln: VulnerabilityReport) -> str:
         """파일 확장자에서 언어를 감지합니다."""
@@ -254,6 +360,80 @@ class DalloAgent:
 (여기에 수정 이유를 설명하세요)
 """
         return prompt
+
+    def _build_audit_prompt(self, code: str, filename: str, language: str) -> str:
+        """정적 분석 clean 결과를 보완하기 위한 LLM 감사 프롬프트."""
+        return f"""당신은 Red Team 관점의 보안 코드 리뷰어입니다. 정적/quick scan에서는 취약점이 탐지되지 않았지만, 아래 코드에 놓친 보안 문제가 있는지 재검토하세요.
+
+## 분석 범위
+- 파일: {filename}
+- 언어: {language}
+- 목적: 정적 룰셋이 놓칠 수 있는 SSRF, 인증 우회, 권한 검증 누락, 입력 검증 누락, 경로 탐색, 명령 실행, SQL/XSS류 취약점 탐지
+
+## 코드
+```{language}
+{code}
+```
+
+## 판단 기준
+1. 실제 공격 경로가 설명 가능한 항목만 findings에 포함하세요.
+2. 확실하지 않은 항목은 severity를 LOW로 낮추고 reason에 불확실성을 적으세요.
+3. 전체 수정 코드는 작성하지 말고, 위치/근거/권장 조치만 제시하세요.
+4. 응답은 반드시 JSON 객체 하나만 반환하세요.
+
+## JSON 형식
+{{
+  "status": "clean 또는 suspicious",
+  "summary": "한 문장 요약",
+  "findings": [
+    {{
+      "title": "취약점 제목",
+      "cwe_id": "CWE-918",
+      "severity": "HIGH",
+      "line_number": 12,
+      "evidence": "문제가 되는 코드 또는 변수",
+      "reason": "왜 공격 가능성이 있는지",
+      "recommendation": "방어 조치"
+    }}
+  ]
+}}
+"""
+
+    def _normalize_audit_response(self, parsed: dict, raw_response: str) -> dict:
+        if not isinstance(parsed, dict) or not parsed:
+            return {
+                "status": "reviewed",
+                "summary": raw_response.strip()[:600] or "LLM audit returned no structured summary.",
+                "findings": [],
+            }
+
+        findings = parsed.get("findings", [])
+        if not isinstance(findings, list):
+            findings = []
+
+        normalized = []
+        for item in findings:
+            if not isinstance(item, dict):
+                continue
+            normalized.append({
+                "title": str(item.get("title") or "Potential security issue"),
+                "cwe_id": str(item.get("cwe_id") or item.get("cwe") or ""),
+                "severity": str(item.get("severity") or "LOW").upper(),
+                "line_number": int(item.get("line_number") or item.get("line") or 0),
+                "evidence": str(item.get("evidence") or ""),
+                "reason": str(item.get("reason") or item.get("description") or ""),
+                "recommendation": str(item.get("recommendation") or item.get("fix") or ""),
+            })
+
+        status = str(parsed.get("status") or ("suspicious" if normalized else "clean")).lower()
+        if status not in {"clean", "suspicious", "reviewed"}:
+            status = "suspicious" if normalized else "clean"
+
+        return {
+            "status": status,
+            "summary": str(parsed.get("summary") or ("LLM audit found potential missed issues." if normalized else "LLM audit did not find additional issues.")),
+            "findings": normalized,
+        }
 
     def _build_multi_prompt(self, vuln: VulnerabilityReport) -> str:
         """3가지 수정 옵션을 요청하는 프롬프트"""

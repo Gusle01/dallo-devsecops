@@ -14,8 +14,8 @@ Python, Java, JavaScript, TypeScript, Go, C/C++, Ruby, PHP 등
 import json
 import subprocess
 import os
-from dataclasses import dataclass, field
 from typing import Optional
+import yaml
 
 from analyzer.bandit_runner import Vulnerability, AnalysisResult
 
@@ -53,15 +53,17 @@ SEVERITY_MAP = {
 class SemgrepRunner:
     """Semgrep 정적 분석 도구 실행기 (다중 언어 지원)"""
 
-    def __init__(self, config: str = "auto"):
+    def __init__(self, config: str | list[str] | None = None):
         """
         Args:
             config: Semgrep 룰 설정
                     - "auto": Semgrep 자동 감지 룰
                     - "p/security-audit": 보안 감사 룰셋
                     - "p/owasp-top-ten": OWASP Top 10 룰셋
+                    - list[str]: 여러 룰셋을 순차 실행 후 병합
         """
-        self.config = config
+        self.configs = _normalize_configs(config)
+        self.timeout = _load_semgrep_timeout()
 
     def detect_language(self, file_path: str) -> str:
         """파일 확장자로 언어를 감지합니다."""
@@ -79,11 +81,39 @@ class SemgrepRunner:
         Returns:
             AnalysisResult: 정규화된 분석 결과
         """
+        merged = AnalysisResult(tool="semgrep", target_path=target_path)
+        errors = []
+
+        for config in self.configs:
+            result = self._run_one_config(target_path, config, output_path=None)
+            if result.error:
+                errors.append(f"{config}: {result.error}")
+                continue
+            merged.vulnerabilities.extend(result.vulnerabilities)
+            merged.high_count += result.high_count
+            merged.medium_count += result.medium_count
+            merged.low_count += result.low_count
+
+        merged.vulnerabilities = _dedupe_vulnerabilities(merged.vulnerabilities)
+        _refresh_counts(merged)
+        if errors and not merged.vulnerabilities:
+            merged.error = "; ".join(errors)[:500]
+        elif errors:
+            merged.raw_output = {"partial_errors": errors}
+
+        if output_path:
+            os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+            with open(output_path, "w", encoding="utf-8") as f:
+                json.dump(merged.to_dict(), f, indent=2, ensure_ascii=False)
+
+        return merged
+
+    def _run_one_config(self, target_path: str, config: str, output_path: Optional[str] = None) -> AnalysisResult:
         result = AnalysisResult(tool="semgrep", target_path=target_path)
 
         cmd = [
             "semgrep",
-            "--config", self.config,
+            "--config", config,
             "--json",
             "--quiet",
             target_path,
@@ -94,7 +124,7 @@ class SemgrepRunner:
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=120,
+                timeout=self.timeout,
             )
 
             output = proc.stdout
@@ -117,7 +147,7 @@ class SemgrepRunner:
             result = self._parse_results(raw, result)
 
         except subprocess.TimeoutExpired:
-            result.error = "Semgrep 분석 시간 초과 (120초)"
+            result.error = f"Semgrep 분석 시간 초과 ({self.timeout}초)"
         except json.JSONDecodeError as e:
             result.error = f"Semgrep 출력 JSON 파싱 실패: {e}"
         except FileNotFoundError:
@@ -188,24 +218,28 @@ class SemgrepRunner:
 def detect_and_run(target_path: str) -> AnalysisResult:
     """파일 확장자를 감지하고 적절한 분석기를 실행합니다."""
     ext = os.path.splitext(target_path)[1].lower()
+    from analyzer.heuristic_runner import HeuristicRunner
+    from analyzer.result_parser import merge_results
+
+    heuristic_result = HeuristicRunner().run(target_path)
 
     if ext == ".py":
         # Python: Bandit + Semgrep 병합
         from analyzer.bandit_runner import BanditRunner
-        from analyzer.result_parser import merge_results
 
         bandit = BanditRunner()
         bandit_result = bandit.run(target_path)
 
-        semgrep = SemgrepRunner(config="auto")
+        semgrep = SemgrepRunner()
         semgrep_result = semgrep.run(target_path)
 
-        return merge_results(bandit_result, semgrep_result)
+        return merge_results(bandit_result, semgrep_result, heuristic_result)
 
     elif ext in EXTENSION_MAP:
-        # 기타 언어: Semgrep만
-        runner = SemgrepRunner(config="auto")
-        return runner.run(target_path)
+        # 기타 언어: Semgrep + 로컬 휴리스틱 fallback
+        runner = SemgrepRunner()
+        semgrep_result = runner.run(target_path)
+        return merge_results(semgrep_result, heuristic_result)
 
     else:
         return AnalysisResult(
@@ -213,3 +247,50 @@ def detect_and_run(target_path: str) -> AnalysisResult:
             target_path=target_path,
             error=f"지원하지 않는 파일 형식: {ext}",
         )
+
+
+def _normalize_configs(config: str | list[str] | None) -> list[str]:
+    if config is None:
+        return _load_semgrep_configs()
+    if isinstance(config, str):
+        return [config]
+    return [str(c) for c in config if str(c).strip()]
+
+
+def _load_semgrep_configs() -> list[str]:
+    cfg = _load_project_config().get("semgrep", {})
+    configs = cfg.get("configs") or ["auto"]
+    return [str(c) for c in configs if str(c).strip()]
+
+
+def _load_semgrep_timeout() -> int:
+    cfg = _load_project_config().get("semgrep", {})
+    return int(cfg.get("timeout_seconds", 120))
+
+
+def _load_project_config() -> dict:
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "config.yaml")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return yaml.safe_load(f) or {}
+    except Exception:
+        return {}
+
+
+def _dedupe_vulnerabilities(vulns: list[Vulnerability]) -> list[Vulnerability]:
+    seen = set()
+    result = []
+    for v in vulns:
+        key = (v.rule_id, v.file_path, v.line_number, (v.code_snippet or "").strip()[:120])
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(v)
+    return result
+
+
+def _refresh_counts(result: AnalysisResult):
+    result.total_issues = len(result.vulnerabilities)
+    result.high_count = sum(1 for v in result.vulnerabilities if v.severity == "HIGH")
+    result.medium_count = sum(1 for v in result.vulnerabilities if v.severity == "MEDIUM")
+    result.low_count = sum(1 for v in result.vulnerabilities if v.severity == "LOW")

@@ -79,6 +79,16 @@ class TestAPIEndpoints:
         assert "count" in data
         assert "patches" in data
 
+    def test_red_blue_summary(self):
+        """Red Team / Blue Team 요약 엔드포인트"""
+        r = client.get("/api/red-blue/summary", headers=_AUTH_HEADERS)
+        assert r.status_code == 200
+        data = r.json()
+        assert data["mode"] == "red_blue"
+        assert "red_team" in data
+        assert "blue_team" in data
+        assert "comparison" in data
+
     def test_sessions(self):
         """세션 이력 엔드포인트"""
         r = client.get("/api/sessions", headers=_AUTH_HEADERS)

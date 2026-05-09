@@ -15,8 +15,15 @@ from api.celery_app import celery_app
 
 @celery_app.task(bind=True, name="dallo.analyze")
 def run_analysis_task(self, code: str, filename: str, use_llm: bool = True,
-                      provider: str = "gemini", model: str = "gemini-2.0-flash-lite",
-                      multi_patch: bool = False):
+                      provider: str = "gateway", model: str = "claude-sonnet-4-6",
+                      multi_patch: bool = False,
+                      cve_scope: list[str] | None = None,
+                      cwe_scope: list[str] | None = None,
+                      rule_scope: list[str] | None = None,
+                      max_llm_targets: int | None = None,
+                      max_context_chars: int | None = None,
+                      batch_llm: bool | None = None,
+                      llm_audit_when_clean: bool = False):
     """
     Celery task: 분석 파이프라인 실행
 
@@ -34,7 +41,15 @@ def run_analysis_task(self, code: str, filename: str, use_llm: bool = True,
         result = execute_pipeline(
             job_id=job_id, code=code, filename=filename,
             use_llm=use_llm, provider=provider, model=model,
-            multi_patch=multi_patch, on_progress=on_progress,
+            multi_patch=multi_patch,
+            cve_scope=cve_scope,
+            cwe_scope=cwe_scope,
+            rule_scope=rule_scope,
+            max_llm_targets=max_llm_targets,
+            max_context_chars=max_context_chars,
+            batch_llm=batch_llm,
+            llm_audit_when_clean=llm_audit_when_clean,
+            on_progress=on_progress,
         )
 
         return {

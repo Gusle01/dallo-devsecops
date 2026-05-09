@@ -4,6 +4,46 @@ import { apiFetch } from '../api/client'
 
 const API = window.location.origin
 
+const LLM_MODELS = {
+  gemini: [
+    { value: 'gemini-2.0-flash-lite', label: 'gemini-2.0-flash-lite' },
+    { value: 'gemini-1.5-flash', label: 'gemini-1.5-flash' },
+  ],
+  openrouter: [
+    { value: 'qwen/qwen3-235b-a22b', label: 'qwen/qwen3-235b-a22b' },
+    { value: 'openai/gpt-4o-mini', label: 'openai/gpt-4o-mini' },
+  ],
+  gateway: [
+    { value: 'claude-sonnet-4-6', label: 'claude-sonnet-4-6' },
+    { value: 'gpt-4o-mini', label: 'gpt-4o-mini' },
+    { value: 'gemini-2.0-flash-lite', label: 'gemini-2.0-flash-lite' },
+  ],
+}
+
+function explainLlmFailure(errorText = '') {
+  const text = String(errorText)
+  const lower = text.toLowerCase()
+
+  if (text.includes('429') || lower.includes('resource_exhausted') || lower.includes('quota')) {
+    return {
+      title: 'LLM quota exceeded',
+      detail: '정적 분석은 완료됐지만 AI 수정안 생성은 API 사용량 제한으로 생략됐습니다. LLM을 끄고 scan하거나, quota가 있는 API 키/provider로 바꿔 다시 실행하세요.',
+    }
+  }
+
+  if (lower.includes('api 키') || lower.includes('api key')) {
+    return {
+      title: 'LLM API key missing',
+      detail: '정적 분석은 완료됐지만 AI 수정안 생성에 필요한 API 키가 없습니다. .env에 provider별 API 키를 설정하거나 LLM을 끄고 실행하세요.',
+    }
+  }
+
+  return {
+    title: 'LLM patch failed',
+    detail: text ? text.slice(0, 220) : 'AI 수정안을 생성하지 못했습니다. 정적 분석 결과는 정상적으로 사용할 수 있습니다.',
+  }
+}
+
 const SAMPLES = {
   python: {
     filename: 'vulnerable_sample.py',
@@ -322,12 +362,41 @@ function isCodeFile(path) {
   return CODE_EXTENSIONS.has(ext)
 }
 
+function parseScopeText(text) {
+  const scopes = { cve: [], cwe: [], rule: [] }
+  String(text || '')
+    .split(',')
+    .map(x => x.trim())
+    .filter(Boolean)
+    .forEach(token => {
+      const upper = token.toUpperCase()
+      if (upper.startsWith('CVE-')) scopes.cve.push(upper)
+      else if (upper.startsWith('CWE-')) scopes.cwe.push(upper)
+      else scopes.rule.push(token)
+    })
+  return scopes
+}
+
+function withOptionalScopes(payload, scopes) {
+  if (scopes.cve.length) payload.cve_scope = scopes.cve
+  if (scopes.cwe.length) payload.cwe_scope = scopes.cwe
+  if (scopes.rule.length) payload.rule_scope = scopes.rule
+  return payload
+}
+
 
 export default function AnalyzeView({ onComplete }) {
   const [code, setCode] = useState('')
   const [filename, setFilename] = useState('my_code.py')
-  const [useLlm, setUseLlm] = useState(true)
+  const [useLlm, setUseLlm] = useState(false)
   const [multiPatch, setMultiPatch] = useState(false)
+  const [provider, setProvider] = useState('gateway')
+  const [model, setModel] = useState(LLM_MODELS.gateway[0].value)
+  const [batchLlm, setBatchLlm] = useState(true)
+  const [llmAuditWhenClean, setLlmAuditWhenClean] = useState(true)
+  const [scopeText, setScopeText] = useState('')
+  const [maxTargets, setMaxTargets] = useState(10)
+  const [maxContextChars, setMaxContextChars] = useState(2400)
   const [status, setStatus] = useState(null) // null | polling | completed | failed
   const [step, setStep] = useState('')
   const [result, setResult] = useState(null)
@@ -360,14 +429,30 @@ export default function AnalyzeView({ onComplete }) {
   const debounceRef = useRef(null)
 
   // 파일 확장자에서 언어 감지
-  const detectLanguage = useCallback((fname) => {
+  const detectLanguage = useCallback((fname, source = '') => {
     const extMap = {
       '.py': 'python', '.java': 'java', '.js': 'javascript', '.jsx': 'javascript',
       '.ts': 'javascript', '.tsx': 'javascript', '.go': 'go', '.c': 'c',
       '.cpp': 'cpp', '.rb': 'ruby', '.php': 'php', '.kt': 'kotlin', '.rs': 'rust',
     }
     const ext = fname.includes('.') ? '.' + fname.split('.').pop().toLowerCase() : '.py'
-    return extMap[ext] || 'python'
+    const byExt = extMap[ext]
+
+    // Default pasted buffers often keep "my_code.py"; infer common languages
+    // from source so live_scan still runs the right rule family.
+    if (!fname || fname === 'my_code.py' || !byExt) {
+      if (/@RequestMapping|@PostMapping|@GetMapping|@RequestParam|public\s+class\s+\w+|package\s+[\w.]+;/.test(source)) {
+        return 'java'
+      }
+      if (/const\s+\w+\s*=|require\s*\(|function\s+\w+\s*\(|=>\s*\{/.test(source)) {
+        return 'javascript'
+      }
+      if (/package\s+main|func\s+\w+\s*\(/.test(source)) {
+        return 'go'
+      }
+    }
+
+    return byExt || 'python'
   }, [])
 
   // 실시간 빠른 스캔 (디바운스 500ms)
@@ -386,7 +471,7 @@ export default function AnalyzeView({ onComplete }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             code,
-            language: detectLanguage(filename),
+            language: detectLanguage(filename, code),
           }),
         })
         const data = await resp.json()
@@ -488,6 +573,11 @@ export default function AnalyzeView({ onComplete }) {
     setSampleMenu(false)
   }
 
+  const selectProvider = (nextProvider) => {
+    setProvider(nextProvider)
+    setModel(LLM_MODELS[nextProvider][0].value)
+  }
+
   const startAnalysis = async () => {
     // 프로젝트 모드에서는 선택된 파일로 분석
     const analyzeCode = projectMode ? (selectedFileData?.code || '') : code
@@ -497,19 +587,26 @@ export default function AnalyzeView({ onComplete }) {
     setStatus('polling')
     setStep('> POST /api/analyze')
     setResult(null)
+    const scopes = parseScopeText(scopeText)
 
     try {
+      const body = withOptionalScopes({
+        code: analyzeCode,
+        filename: analyzeFilename,
+        use_llm: useLlm,
+        multi_patch: multiPatch,
+        provider,
+        model,
+        batch_llm: batchLlm,
+        llm_audit_when_clean: llmAuditWhenClean,
+        max_llm_targets: Number(maxTargets) || null,
+        max_context_chars: Number(maxContextChars) || null,
+      }, scopes)
+
       const resp = await apiFetch(`${API}/api/analyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          code: analyzeCode,
-          filename: analyzeFilename,
-          use_llm: useLlm,
-          multi_patch: multiPatch,
-          provider: 'gemini',
-          model: 'gemini-2.0-flash-lite',
-        }),
+        body: JSON.stringify(body),
       })
       const data = await resp.json()
       const jobId = data.job_id
@@ -545,10 +642,10 @@ export default function AnalyzeView({ onComplete }) {
     <div>
       <div className="page-header">
         <h1 className="page-title">
-          <em>$</em>&nbsp;scan <span style={{ color: 'var(--ink-faint)' }}>--target ./</span>
+          <em>$</em>&nbsp;redscan <span style={{ color: 'var(--ink-faint)' }}>--target ./oss</span>
         </h1>
         <p className="page-subtitle">
-          paste source · upload file · drop a project — analyzers will return findings, llm will draft patches, revalidator will witness them
+          red team identifies exploitable code paths; blue team drafts LLM remediation and validates before/after risk
         </p>
       </div>
 
@@ -1016,17 +1113,136 @@ export default function AnalyzeView({ onComplete }) {
               llm_patch
             </label>
             {useLlm && (
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--ink-dim)', cursor: 'pointer', fontWeight: 600, fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-                <input
-                  type="checkbox"
-                  checked={multiPatch}
-                  onChange={e => setMultiPatch(e.target.checked)}
-                  style={{ accentColor: 'var(--purple)' }}
-                />
-multi_patch (--minimal --recommended --structural)
-              </label>
+              <>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--ink-dim)', cursor: 'pointer', fontWeight: 600, fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                  <input
+                    type="checkbox"
+                    checked={multiPatch}
+                    onChange={e => setMultiPatch(e.target.checked)}
+                    style={{ accentColor: 'var(--purple)' }}
+                  />
+multi_patch
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: batchLlm ? COLORS.phosphor : 'var(--ink-dim)', cursor: 'pointer', fontWeight: 600, fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                  <input
+                    type="checkbox"
+                    checked={batchLlm}
+                    disabled={multiPatch}
+                    onChange={e => setBatchLlm(e.target.checked)}
+                    style={{ accentColor: COLORS.phosphor }}
+                  />
+batch_llm
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: llmAuditWhenClean ? COLORS.cyan : 'var(--ink-dim)', cursor: 'pointer', fontWeight: 600, fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                  <input
+                    type="checkbox"
+                    checked={llmAuditWhenClean}
+                    onChange={e => setLlmAuditWhenClean(e.target.checked)}
+                    style={{ accentColor: COLORS.cyan }}
+                  />
+ai_audit_clean
+                </label>
+                <select
+                  value={provider}
+                  onChange={e => selectProvider(e.target.value)}
+                  style={{
+                    height: 28,
+                    borderRadius: 0,
+                    border: '1px solid var(--rule-hot)',
+                    background: 'var(--paper-highlight)',
+                    color: 'var(--ink)',
+                    fontSize: 11,
+                    fontFamily: 'var(--font-mono)',
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  <option value="gemini">gemini</option>
+                  <option value="openrouter">openrouter</option>
+                  <option value="gateway">gateway</option>
+                </select>
+                <select
+                  value={model}
+                  onChange={e => setModel(e.target.value)}
+                  style={{
+                    height: 28,
+                    minWidth: 210,
+                    borderRadius: 0,
+                    border: '1px solid var(--rule-hot)',
+                    background: 'var(--paper-highlight)',
+                    color: 'var(--ink)',
+                    fontSize: 11,
+                    fontFamily: 'var(--font-mono)',
+                  }}
+                >
+                  {LLM_MODELS[provider].map(item => (
+                    <option key={item.value} value={item.value}>{item.label}</option>
+                  ))}
+                </select>
+              </>
             )}
           </div>
+          {useLlm && (
+            <div style={{
+              width: '100%',
+              display: 'grid',
+              gridTemplateColumns: 'minmax(220px, 1fr) 120px 150px',
+              gap: 10,
+              alignItems: 'center',
+            }}>
+              <input
+                value={scopeText}
+                onChange={e => setScopeText(e.target.value)}
+                placeholder="scope override: CWE-89,CWE-288,B608,AUTH-BYPASS"
+                style={{
+                  height: 32,
+                  borderRadius: 0,
+                  border: '1px solid var(--rule-hot)',
+                  background: 'var(--paper-highlight)',
+                  color: 'var(--ink)',
+                  fontSize: 11,
+                  fontFamily: 'var(--font-mono)',
+                  padding: '0 10px',
+                }}
+              />
+              <input
+                type="number"
+                min="1"
+                max="50"
+                value={maxTargets}
+                onChange={e => setMaxTargets(e.target.value)}
+                title="max LLM targets"
+                style={{
+                  height: 32,
+                  borderRadius: 0,
+                  border: '1px solid var(--rule-hot)',
+                  background: 'var(--paper-highlight)',
+                  color: 'var(--ink)',
+                  fontSize: 11,
+                  fontFamily: 'var(--font-mono)',
+                  padding: '0 10px',
+                }}
+              />
+              <input
+                type="number"
+                min="600"
+                max="12000"
+                step="100"
+                value={maxContextChars}
+                onChange={e => setMaxContextChars(e.target.value)}
+                title="max context chars per finding"
+                style={{
+                  height: 32,
+                  borderRadius: 0,
+                  border: '1px solid var(--rule-hot)',
+                  background: 'var(--paper-highlight)',
+                  color: 'var(--ink)',
+                  fontSize: 11,
+                  fontFamily: 'var(--font-mono)',
+                  padding: '0 10px',
+                }}
+              />
+            </div>
+          )}
           {(() => {
             const hasCode = projectMode ? !!selectedFileData?.code?.trim() : !!code.trim()
             const disabled = !hasCode || status === 'polling'
@@ -1049,7 +1265,7 @@ multi_patch (--minimal --recommended --structural)
                   boxShadow: disabled ? 'none' : '0 0 24px rgba(158, 255, 125, 0.25)',
                 }}
               >
-                {status === 'polling' ? '> running...' : projectMode ? '> ./scan --file' : '> ./scan ↗'}
+                {status === 'polling' ? '> running...' : projectMode ? '> ./redscan --file' : '> ./redscan ↗'}
               </button>
             )
           })()}
@@ -1108,9 +1324,42 @@ multi_patch (--minimal --recommended --structural)
 
 
 function ResultView({ result }) {
-  const summary = result.summary || {}
-  const vulns = result.vulnerabilities || []
+  const rawSummary = result.summary || {}
+  const redBlue = result.red_blue_summary || {}
+  const red = redBlue.red_team || {}
+  const blue = redBlue.blue_team || {}
+  const comparison = redBlue.comparison || {}
+  const optimization = result.llm_optimization || {}
+  const llmAudit = result.llm_audit || null
+  const auditFindings = llmAudit?.findings || []
+  const rawVulns = result.vulnerabilities || []
+  const vulns = rawVulns.length ? rawVulns : auditFindings.map((finding, i) => ({
+    id: `llm_audit_${i + 1}_${finding.line_number || 0}`,
+    tool: 'llm_audit',
+    rule_id: `LLM-AUDIT-${finding.cwe_id || i + 1}`,
+    severity: finding.severity || 'LOW',
+    confidence: 'MEDIUM',
+    title: finding.title || 'LLM audit finding',
+    description: [finding.reason, finding.recommendation ? `Recommendation: ${finding.recommendation}` : ''].filter(Boolean).join('\n\n'),
+    file_path: result.filename || 'uploaded_code',
+    line_number: finding.line_number || 0,
+    code_snippet: finding.evidence || '',
+    cwe_id: finding.cwe_id || null,
+  }))
+  const summary = {
+    ...rawSummary,
+    total: rawSummary.total || vulns.length,
+    high: rawSummary.high || vulns.filter(v => String(v.severity).toUpperCase() === 'HIGH').length,
+    medium: rawSummary.medium || vulns.filter(v => String(v.severity).toUpperCase() === 'MEDIUM').length,
+    low: rawSummary.low || vulns.filter(v => String(v.severity).toUpperCase() === 'LOW').length,
+  }
   const patches = result.patches || []
+  const llmFailure = result.llm_error
+    ? explainLlmFailure(result.llm_error)
+    : patches.map(p => explainLlmFailure(p.explanation)).find((info, i) => {
+      const p = patches[i]
+      return !p.fixed_code && p.status === 'failed' && info.title !== 'LLM patch failed'
+    })
 
   // 취약점별 패치 그룹핑 (다중 수정안 지원)
   const patchMap = {}
@@ -1175,6 +1424,108 @@ function ResultView({ result }) {
           </div>
         ))}
       </div>
+
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+        gap: 14,
+        marginBottom: 32,
+      }}>
+        <div style={{ padding: '16px 18px', border: '1px solid var(--rule-hot)', borderLeft: '2px solid var(--blood)', background: 'var(--bg-deep)' }}>
+          <div className="section-label" style={{ color: 'var(--blood)' }}>
+            ── redteam.objective
+          </div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: 1.8, color: 'var(--ink-dim)' }}>
+            attack_surface: <span style={{ color: 'var(--ink)' }}>{red.affected_files || 0} files</span><br />
+            unique_cwe: <span style={{ color: 'var(--ink)' }}>{red.unique_cwe || 0}</span><br />
+            critical_high: <span style={{ color: 'var(--blood)' }}>{red.critical_or_high || 0}</span>
+          </div>
+        </div>
+        <div style={{ padding: '16px 18px', border: '1px solid var(--rule-hot)', borderLeft: '2px solid var(--cyan)', background: 'var(--bg-deep)' }}>
+          <div className="section-label" style={{ color: 'var(--cyan)' }}>
+            ── blueteam.objective
+          </div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: 1.8, color: 'var(--ink-dim)' }}>
+            drafted: <span style={{ color: 'var(--ink)' }}>{blue.patches_generated || 0}</span><br />
+            verified: <span style={{ color: 'var(--phosphor)' }}>{blue.patches_verified || 0}</span><br />
+            reduction: <span style={{ color: 'var(--phosphor)' }}>{comparison.risk_reduction_percent || 0}%</span>
+          </div>
+        </div>
+      </div>
+
+      {llmFailure && (
+        <div className="fade-in alert alert--danger" style={{ marginBottom: 24 }}>
+          <strong>{llmFailure.title}</strong>
+          <div style={{ marginTop: 6 }}>{llmFailure.detail}</div>
+        </div>
+      )}
+
+      {optimization.enabled && (
+        <div style={{
+          marginBottom: 24,
+          padding: '12px 16px',
+          border: '1px solid var(--rule-hot)',
+          borderLeft: '2px solid var(--cyan)',
+          background: 'var(--bg-deep)',
+          fontFamily: 'var(--font-mono)',
+          fontSize: 11,
+          color: 'var(--ink-dim)',
+          lineHeight: 1.8,
+          textTransform: 'uppercase',
+          letterSpacing: '0.08em',
+        }}>
+          llm_optimization:
+          selected <span style={{ color: 'var(--phosphor)' }}>{optimization.selected_targets ?? 0}</span>
+          {' '}of <span style={{ color: 'var(--ink)' }}>{optimization.original_targets ?? 0}</span>
+          {' '}· skipped <span style={{ color: 'var(--amber)' }}>{optimization.skipped_targets ?? 0}</span>
+          {' '}· context {optimization.max_context_chars ?? 0} chars
+          {' '}· batch <span style={{ color: optimization.batch_enabled ? 'var(--phosphor)' : 'var(--ink-faint)' }}>{optimization.batch_enabled ? 'on' : 'off'}</span>
+        </div>
+      )}
+
+      {llmAudit && (
+        <div style={{
+          marginBottom: 24,
+          padding: '14px 16px',
+          border: '1px solid var(--rule-hot)',
+          borderLeft: `2px solid ${auditFindings.length ? 'var(--amber)' : 'var(--phosphor)'}`,
+          background: 'var(--bg-deep)',
+          fontFamily: 'var(--font-mono)',
+          fontSize: 11,
+          color: 'var(--ink-dim)',
+          lineHeight: 1.75,
+        }}>
+          <div style={{
+            textTransform: 'uppercase',
+            letterSpacing: '0.1em',
+            color: auditFindings.length ? 'var(--amber)' : 'var(--phosphor)',
+            fontWeight: 800,
+            marginBottom: 8,
+          }}>
+            llm_clean_audit: {llmAudit.status || 'reviewed'} · missed_findings {auditFindings.length}
+          </div>
+          <div style={{ color: 'var(--ink)' }}>{llmAudit.summary}</div>
+          {auditFindings.map((finding, i) => (
+            <div key={i} style={{
+              marginTop: 12,
+              paddingTop: 12,
+              borderTop: '1px dotted var(--rule)',
+            }}>
+              <div style={{ color: 'var(--amber)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 700 }}>
+                [{finding.severity || 'LOW'}] {finding.title || 'potential_issue'}
+                {finding.cwe_id ? ` · ${finding.cwe_id}` : ''}
+                {finding.line_number ? ` · line ${finding.line_number}` : ''}
+              </div>
+              {finding.reason && <div style={{ marginTop: 4 }}>{finding.reason}</div>}
+              {finding.recommendation && (
+                <div style={{ marginTop: 4, color: 'var(--cyan)' }}>
+                  recommendation: {finding.recommendation}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       {vulns.length === 0 && (
         <div className="fade-in" style={{
@@ -1278,6 +1629,31 @@ function ResultView({ result }) {
               {v.description}
             </div>
 
+            {v.attack_scenario && (
+              <div style={{
+                fontSize: 12,
+                color: 'var(--ink-dim)',
+                marginBottom: 14,
+                lineHeight: 1.65,
+                maxWidth: '80ch',
+                fontFamily: 'var(--font-mono)',
+                padding: '10px 14px',
+                border: '1px solid var(--rule)',
+                borderLeft: '2px solid var(--blood)',
+                background: 'var(--bg-deep)',
+              }}>
+                <span style={{ color: 'var(--blood)' }}>[RED]</span>{' '}
+                {v.attack_scenario}
+                {v.blue_team_strategy && (
+                  <>
+                    <br />
+                    <span style={{ color: 'var(--cyan)' }}>[BLUE]</span>{' '}
+                    {v.blue_team_strategy}
+                  </>
+                )}
+              </div>
+            )}
+
             {v.code_snippet && (
               <pre className="code-block code-block--danger">{v.code_snippet}</pre>
             )}
@@ -1347,7 +1723,7 @@ function ResultView({ result }) {
                       </span>
                     )}
                   </div>
-                  {patch.explanation && (
+                    {patch.explanation && (
                     <div style={{
                       padding: '12px 16px',
                       background: 'var(--bg-deep)',
@@ -1365,6 +1741,19 @@ function ResultView({ result }) {
                       {patch.explanation.slice(0, 400)}
                     </div>
                   )}
+                  {(patch.defense_outcome || patch.residual_risk) && (
+                    <div style={{
+                      fontSize: 11,
+                      color: 'var(--ink-dim)',
+                      fontFamily: 'var(--font-mono)',
+                      marginBottom: 12,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.08em',
+                    }}>
+                      defense_outcome: <span style={{ color: 'var(--phosphor)' }}>{patch.defense_outcome || 'drafted_defense'}</span>
+                      {' '}· residual_risk: <span style={{ color: 'var(--amber)' }}>{patch.residual_risk || 'unknown'}</span>
+                    </div>
+                  )}
                   <pre className="code-block code-block--success">{patch.fixed_code}</pre>
 
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 12, flexWrap: 'wrap' }}>
@@ -1377,20 +1766,24 @@ function ResultView({ result }) {
             })}
 
             {vPatches.length > 0 && vPatches.every(p => !p.fixed_code) && (
-              <div style={{
-                marginTop: 14,
-                fontSize: 11,
-                color: COLORS.blood,
-                fontFamily: 'var(--font-mono)',
-                paddingLeft: 14,
-                borderLeft: '2px solid var(--blood)',
-                textTransform: 'uppercase',
-                letterSpacing: '0.1em',
-                padding: '8px 14px',
-                background: 'rgba(255, 61, 36, 0.05)',
-              }}>
-                [FAIL] llm declined to draft a patch
-              </div>
+              (() => {
+                const failure = explainLlmFailure(vPatches[0]?.explanation)
+                return (
+                  <div style={{
+                    marginTop: 14,
+                    fontSize: 11,
+                    color: COLORS.blood,
+                    fontFamily: 'var(--font-mono)',
+                    paddingLeft: 14,
+                    borderLeft: '2px solid var(--blood)',
+                    letterSpacing: '0.04em',
+                    padding: '8px 14px',
+                    background: 'rgba(255, 61, 36, 0.05)',
+                  }}>
+                    [FAIL] {failure.title}: {failure.detail}
+                  </div>
+                )
+              })()
             )}
           </article>
         )
@@ -1738,19 +2131,26 @@ function CopyCodeButton({ code }) {
 
 function ReportBar() {
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
 
   const openReport = async () => {
     setLoading(true)
+    setError('')
+    const w = window.open('', '_blank')
     try {
       const resp = await apiFetch(`${API}/api/report/preview`)
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
       const data = await resp.json()
       if (data.html) {
-        const w = window.open('', '_blank')
         w.document.write(data.html)
         w.document.close()
+      } else {
+        throw new Error(data.error || 'report preview returned no html')
       }
     } catch (e) {
       console.error('리포트 생성 실패:', e)
+      setError(e.message)
+      if (w) w.close()
     }
     setLoading(false)
   }
@@ -1789,6 +2189,16 @@ function ReportBar() {
         }}>
           # findings · patches · revalidation
         </div>
+        {error && (
+          <div style={{
+            fontSize: 10,
+            color: 'var(--blood)',
+            marginTop: 6,
+            fontFamily: 'var(--font-mono)',
+          }}>
+            [FAIL] {error}
+          </div>
+        )}
       </div>
       <button
         onClick={openReport}

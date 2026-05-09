@@ -9,6 +9,7 @@ import HistoryView from './components/HistoryView'
 import DependencyView from './components/DependencyView'
 import ReportView from './components/ReportView'
 import LoginView from './components/LoginView'
+import RedBlueView from './components/RedBlueView'
 import { apiFetch, isAuthenticated, clearApiKey } from './api/client'
 
 const API = window.location.port === '5173' ? '/api' : `${window.location.origin}/api`
@@ -94,13 +95,14 @@ export default function App() {
 
   // Tabs as command-line subcommands
   const tabs = [
-    { id: 'analyze',   num: '01', cmd: 'scan',     ko: '분석' },
-    { id: 'dashboard', num: '02', cmd: 'stats',    ko: '대시보드' },
-    { id: 'vulns',     num: '03', cmd: 'findings', ko: '취약점' },
-    { id: 'patches',   num: '04', cmd: 'patches',  ko: '수정안' },
-    { id: 'deps',      num: '05', cmd: 'deps',     ko: '의존성' },
-    { id: 'report',    num: '06', cmd: 'report',   ko: '리포트' },
-    { id: 'history',   num: '07', cmd: 'log',      ko: '이력' },
+    { id: 'analyze',   num: '01', cmd: 'redscan',  ko: '레드팀 분석' },
+    { id: 'redblue',   num: '02', cmd: 'ops',      ko: '공격/방어' },
+    { id: 'dashboard', num: '03', cmd: 'stats',    ko: '대시보드' },
+    { id: 'vulns',     num: '04', cmd: 'findings', ko: '취약점' },
+    { id: 'patches',   num: '05', cmd: 'defense',  ko: '블루팀 수정' },
+    { id: 'deps',      num: '06', cmd: 'deps',     ko: '의존성' },
+    { id: 'report',    num: '07', cmd: 'report',   ko: '리포트' },
+    { id: 'history',   num: '08', cmd: 'log',      ko: '이력' },
   ]
 
   const status = error ? 'OFFLINE' : loading ? 'BOOTING' : 'READY'
@@ -149,7 +151,7 @@ export default function App() {
                 letterSpacing: '0.14em',
                 paddingLeft: 22,
               }}>
-                # static analysis · llm patch synthesis · audit trail
+                # red team scan · blue team defense · before/after evidence
               </div>
             </div>
 
@@ -222,7 +224,7 @@ export default function App() {
                         <em>$</em>&nbsp;stats
                       </h1>
                       <p className="page-subtitle">
-                        snapshot of the most recent audit — counts, ratios, current state
+                        red team findings and blue team remediation evidence from the latest run
                       </p>
                     </div>
                     <StatsCards stats={stats} />
@@ -233,6 +235,7 @@ export default function App() {
                     </div>
                   </>
                 )}
+                {tab === 'redblue' && <RedBlueView />}
                 {tab === 'vulns' && <VulnTable vulns={vulns} />}
                 {tab === 'patches' && <PatchView patches={patches} />}
                 {tab === 'deps' && <DependencyView />}

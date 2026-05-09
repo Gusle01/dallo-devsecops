@@ -41,6 +41,12 @@ def setup_env():
     else:
         print("  ✅ .env 파일 존재")
 
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+    except ImportError:
+        pass
+
 
 def init_db():
     print("\n🗄️  DB 초기화 중...")

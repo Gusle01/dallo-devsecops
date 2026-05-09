@@ -11,6 +11,8 @@ from shared.schemas import VulnerabilityReport
 from agent.cache import LLMCache
 from agent.batch_processor import group_by_file, parse_batch_response
 from agent.response_parser import extract_json_from_response, extract_patches_from_json
+from shared.llm_optimization import LLMOptimizationConfig, optimize_llm_targets
+from agent.llm_agent import DalloAgent
 
 
 def _make_vuln(id, file_path="test.py", rule_id="B608"):
@@ -70,6 +72,74 @@ class TestBatchProcessor:
         patches = parse_batch_response(response, vulns)
         assert len(patches) == 2
         assert patches[0].fixed_code == "safe_code_1"
+
+
+class TestLLMOptimization:
+    def test_cwe_scope_filters_targets(self):
+        vulns = [
+            _make_vuln("v1", rule_id="B608"),
+            _make_vuln("v2", rule_id="B303"),
+        ]
+        vulns[0].cwe_id = "CWE-89"
+        vulns[1].cwe_id = "CWE-328"
+
+        selected, summary = optimize_llm_targets(
+            vulns,
+            LLMOptimizationConfig(cwe_scope=["CWE-89"], max_targets=10),
+        )
+
+        assert [v.id for v in selected] == ["v1"]
+        assert summary["skipped_targets"] == 1
+
+    def test_scope_alias_maps_to_cwe(self):
+        vulns = [
+            _make_vuln("v1", rule_id="HEUR-AUTH-BYPASS-USER-CONTROLLED-ID"),
+            _make_vuln("v2", rule_id="B303"),
+        ]
+        vulns[0].cwe_id = "CWE-288"
+        vulns[1].cwe_id = "CWE-328"
+
+        selected, _ = optimize_llm_targets(
+            vulns,
+            LLMOptimizationConfig(cwe_scope=["AUTH-BYPASS"], max_targets=10),
+        )
+
+        assert [v.id for v in selected] == ["v1"]
+
+    def test_context_is_trimmed(self):
+        vuln = _make_vuln("v1")
+        vuln.function_code = "a" * 5000
+
+        selected, summary = optimize_llm_targets(
+            [vuln],
+            LLMOptimizationConfig(max_context_chars=1000),
+        )
+
+        assert len(selected[0].function_code) < 1200
+        assert "context trimmed" in selected[0].function_code
+        assert summary["max_context_chars"] == 1000
+
+
+class DummyAuditProvider:
+    model = "dummy"
+    temperature = 0.2
+
+    def call(self, prompt, system=None):
+        return '{"status":"suspicious","summary":"Potential SSRF missed by static scan.","findings":[{"title":"SSRF","cwe_id":"CWE-918","severity":"HIGH","line_number":12,"evidence":"url","reason":"user input controls URL","recommendation":"allowlist host"}]}'
+
+
+class TestCleanAudit:
+    def test_audit_code_returns_structured_findings(self):
+        agent = DalloAgent.__new__(DalloAgent)
+        agent._provider = DummyAuditProvider()
+        agent._cache = LLMCache(ttl=60)
+        agent._cache._redis = None
+
+        audit = agent.audit_code("String url = request.getParameter(\"url\");", "SSRFTask1.java", "java")
+
+        assert audit["status"] == "suspicious"
+        assert audit["findings"][0]["cwe_id"] == "CWE-918"
+        assert audit["findings"][0]["line_number"] == 12
 
 
 class TestResponseParser:

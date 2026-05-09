@@ -2,7 +2,7 @@
 LLM 프로바이더 팩토리 (agent/provider_factory.py)
 
 환경변수 LLM_PRIMARY_PROVIDER에 따라 적절한 프로바이더를 반환합니다.
-현재 활성 프로바이더: gemini, openrouter.
+현재 활성 프로바이더: gemini, openrouter, gateway.
 """
 
 import os
@@ -14,10 +14,10 @@ from agent.providers.base import LLMProvider
 logger = logging.getLogger(__name__)
 
 # 활성 프로바이더 (실제 호출 경로가 연결된 것)
-_ACTIVE_PROVIDERS = {"gemini", "openrouter"}
+_ACTIVE_PROVIDERS = {"gemini", "openrouter", "gateway"}
 
 # 등록된 프로바이더 (비활성 포함)
-_REGISTERED_PROVIDERS = {"gemini", "openrouter", "openai", "anthropic"}
+_REGISTERED_PROVIDERS = {"gemini", "openrouter", "gateway", "openai", "anthropic"}
 
 PRIMARY_PROVIDER = os.environ.get("LLM_PRIMARY_PROVIDER", "gemini").lower()
 
@@ -81,6 +81,17 @@ def get_provider(
         if model:
             kwargs["model"] = model
         return OpenRouterProvider(**kwargs)
+
+    if provider_name == "gateway":
+        from agent.providers.gateway_provider import GatewayProvider
+        kwargs = {"temperature": temperature}
+        if api_key:
+            kwargs["api_key"] = api_key
+        if api_keys:
+            kwargs["api_keys"] = api_keys
+        if model:
+            kwargs["model"] = model
+        return GatewayProvider(**kwargs)
 
     # 향후 활성화 시:
     # if provider_name == "openai":

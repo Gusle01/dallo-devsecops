@@ -8,6 +8,8 @@ SonarQube 결과와 통합할 수 있도록 공통 포맷을 사용합니다.
 import json
 import subprocess
 import os
+import shutil
+import sys
 from dataclasses import dataclass, field, asdict
 from typing import Optional
 from pathlib import Path
@@ -83,8 +85,9 @@ class BanditRunner:
         result = AnalysisResult(tool="bandit", target_path=target_path)
 
         # Bandit 명령어 구성
+        bandit_cmd = [shutil.which("bandit")] if shutil.which("bandit") else [sys.executable, "-m", "bandit"]
         cmd = [
-            "bandit",
+            *bandit_cmd,
             "-r", target_path,           # 재귀 분석
             "-f", "json",                # JSON 출력
             "-q",                        # progress bar 억제 (stdout JSON 오염 방지)

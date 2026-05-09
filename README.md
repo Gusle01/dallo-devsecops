@@ -1,33 +1,72 @@
 # Dallo DevSecOps
 
-> LLM 에이전트 기반 소스코드 보안 취약점 분석 및 리팩토링 제안 시스템
+> Red Team 분석과 Blue Team 방어 검증을 결합한 AI 기반 공격·방어 분석 시스템
 
 **전북대학교 SW중심대학사업단 캡스톤디자인 | 팀 달로 | 기업연계: 올포랜드**
 
 ## 개요
 
-코드를 업로드하면 보안 취약점을 자동으로 탐지하고, AI가 수정된 코드를 제안하는 DevSecOps 플랫폼입니다.
+실제 오픈소스 소프트웨어나 업로드한 코드를 대상으로 Red Team 관점에서 보안 취약점과 공격 가능성을 분석하고, Blue Team 관점에서 LLM 기반 수정 코드를 생성·검증하여 수정 전/후 보안성을 비교하는 DevSecOps 플랫폼입니다.
+
+최근 Claude Code의 `/security-review` 및 GitHub Actions 기반 보안 리뷰 흐름처럼 AI가 코드 보안 리뷰와 수정 자동화에 활용되는 흐름을 반영하되, Dallo는 **취약점 탐지 → 공격 시나리오 해석 → LLM 방어 코드 생성 → 문법/보안 재검증 → Before/After 비교**까지 하나의 파이프라인으로 제공합니다.
+
+### Red Team / Blue Team 관점
+
+| 관점 | 역할 | Dallo 구현 |
+|------|------|------------|
+| **Red Team** | 실제 코드에서 악용 가능한 취약점과 공격 경로를 식별 | Bandit/Semgrep/휴리스틱 분석, CWE/CVSS 위험도, 공격 시나리오, 악용 가능성 산정 |
+| **Blue Team** | 취약점을 방어하고 보안성을 강화 | LLM 리팩토링, minimal/recommended/structural 수정안, 문법 검증, 보안 재검증 |
+| **Before/After Evidence** | 수정 효과를 정량적으로 비교 | 수정 전/후 취약점 수, 제거/잔여/신규 취약점, 위험도 감소율, 리포트 |
+
+### Attack Plan / Defense Plan
+
+Red Team 결과는 단순 취약점 목록이 아니라 공격 경로로 구조화됩니다.
+
+```json
+{
+  "attack_goal": "bypass account verification for another user",
+  "controlled_input": "HTTP request parameter userId",
+  "trust_boundary": "HTTP request -> server-side authorization/session state",
+  "vulnerable_action": "server-side verification state update",
+  "attack_path": "HTTP request parameter userId -> server-side verification state update",
+  "status": "OPEN"
+}
+```
+
+Blue Team 결과는 해당 공격 경로를 어떤 방식으로 차단하는지 연결합니다.
+
+```json
+{
+  "defense_goal": "Remove request-controlled identity from account verification.",
+  "strategy": "Use the authenticated server-side principal instead of request userId.",
+  "validation": ["syntax_check: passed", "security_revalidation: passed"],
+  "status": "BLOCKED",
+  "residual_risk": "low"
+}
+```
+
+대시보드 `ops` 탭은 각 취약점을 `OPEN`, `MITIGATING`, `BLOCKED`, `REVIEW` 상태로 표시하여 공격 경로가 방어되었는지 확인할 수 있게 합니다.
 
 ### 주요 기능
 
 | # | 기능 | 설명 |
 |---|------|------|
-| 1 | **정적 분석** | Bandit(Python) + Semgrep(Java, JS, Go 등 30개+ 언어) |
-| 2 | **AI 수정안 생성** | Gemini 메인 프로바이더 + Protocol 기반 확장 구조 (OpenAI, Anthropic, OpenRouter 대비) |
-| 3 | **중복 제거 + 위험도 산정** | 동일 취약점 그룹화, CWE 기반 CVSS 스코어 매핑으로 critical/high/medium/low 분류 |
-| 4 | **LLM 캐싱 + Batch 처리** | 동일 코드/취약점 재호출 방지 (Redis 캐시), 같은 파일 내 취약점 묶어서 한 번에 처리 |
-| 5 | **민감정보 마스킹** | Microsoft Presidio 기반 탐지 (API 키, JWT, 주민번호 등) + 정규식 fallback |
-| 6 | **API Key 인증** | X-API-Key 헤더 기반 인증, 타이밍 공격 방지 (hmac.compare_digest) |
-| 7 | **비동기 작업 큐** | Celery + Redis 기반 분석 작업 관리 (메모리 fallback 지원) |
-| 8 | **CI/CD 빌드 차단** | Critical/High 임계값 초과 시 GitHub Actions 빌드 실패 처리 |
+| 1 | **Red Team 정적 분석** | Bandit(Python) + Semgrep(Java, JS, Go 등 30개+ 언어) + 휴리스틱 fallback |
+| 2 | **공격 시나리오 해석** | CWE 기반 공격 벡터, 악용 가능성, 보안 영향, 우선순위 산정 |
+| 3 | **Blue Team AI 수정안 생성** | Gemini/Claude/OpenRouter 등 Provider 구조 기반 LLM 리팩토링 |
+| 4 | **Before/After 비교** | 수정 전/후 취약점 수, 제거/잔여/신규 취약점, 위험도 감소율 계산 |
+| 5 | **중복 제거 + 위험도 산정** | 동일 취약점 그룹화, CWE 기반 CVSS 스코어 매핑으로 critical/high/medium/low 분류 |
+| 6 | **LLM 속도 최적화** | CVE/CWE/rule scope 선택, 문맥 길이 제한, batch LLM 호출, Redis/메모리 캐시 |
+| 7 | **민감정보 마스킹** | Microsoft Presidio 기반 탐지 (API 키, JWT, 주민번호 등) + 정규식 fallback |
+| 8 | **API Key 인증 + CI/CD 보안 게이트** | X-API-Key 인증, Celery/Redis 작업 관리, Critical/High 임계값 빌드 차단 |
 
 ## 시스템 아키텍처
 
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                    Web Dashboard (React)                  │
-│  [코드 업로드] → [실시간 분석] → [결과 시각화/Diff 비교]    │
-│  [API Key 로그인] → [분석 이력] → [리포트 생성/다운로드]    │
+│  [Red Team Scan] → [Attack/Defense] → [Before/After Report]│
+│  [Blue Team Defense] → [Diff 비교] → [분석 이력]            │
 └────────────────────────┬────────────────────────────────┘
                          │ REST API (X-API-Key 인증)
 ┌────────────────────────▼────────────────────────────────┐
@@ -40,7 +79,7 @@
 │  └────┬─────┘  └────┬─────┘  └────┬─────┘  └───┬────┘  │
 │       └──────┬──────┘             │             │       │
 │              ▼                    ▼             ▼       │
-│  [중복 제거] → [위험도 산정] → [LLM 수정안] → [검증]    │
+│  [Red Team 분석] → [위험도 산정] → [Blue Team 수정안] → [검증] │
 │              │                    │             │       │
 │              └────────────┬──────┘─────────────┘       │
 │                           ▼                             │
@@ -53,35 +92,59 @@
 └─────────────────────────────────────────────────────────┘
 ```
 
-### 분석 파이프라인 (8단계)
+### Red Team / Blue Team 분석 파이프라인 (8단계)
 
 ```
 1. 코드 입력 (대시보드 업로드 or GitHub PR)
        │
-2. 정적 분석 (Bandit + Semgrep)
+2. Red Team 정적 분석 (Bandit + Semgrep + 휴리스틱)
        │ → 취약점 탐지 (SQL Injection, XSS, Command Injection 등)
        │
-3. 코드 문맥 추출
+3. 공격 문맥 추출
        │ → 취약점 포함 함수, import문, 주변 코드
        │
 4. 중복 제거 (NEW)
        │ → 동일 rule_id + 유사 코드 패턴 그룹화, 대표 1건만 LLM에 전달
        │
-5. 위험도 산정 (NEW)
-       │ → CWE 기반 CVSS 스코어 매핑 → critical/high/medium/low 분류
+5. 위험도 및 공격 시나리오 산정
+       │ → CWE 기반 CVSS 스코어 매핑 → 공격 벡터/영향/악용 가능성 설명
        │
-6. LLM 수정안 생성 (Gemini API)
-       │ → 민감정보 마스킹 후 전송 → 수정 코드 + 근거 생성
+6. LLM 대상 최적화 + Blue Team 수정안 생성
+       │ → CVE/CWE/rule scope로 LLM 대상 제한
+       │ → 취약점별 문맥 길이 축소 + 같은 파일 취약점 batch 처리
        │ → 캐시 확인 (동일 코드/취약점이면 이전 결과 반환)
        │
-7. 코드 검증
+7. 방어 코드 검증
        │ → 문법 검사 (AST 파싱) + 보안 재검증 (수정 코드에 Bandit/Semgrep 재실행)
        │
-8. 결과 제공
-       ├→ 대시보드: 실시간 표시 + Diff 비교
+8. Before/After 결과 제공
+       ├→ 대시보드: Red/Blue 요약 + Diff 비교
        ├→ GitHub PR: 코멘트로 자동 게시
-       └→ DB: 이력 저장 + 추이 분석
+       └→ DB/리포트: 수정 전후 비교 + 위험도 감소율
 ```
+
+### LLM 속도 최적화
+
+정적 분석은 전체 코드를 대상으로 수행하되, 비용이 큰 LLM 수정안 생성은 선택적으로 제한합니다.
+
+| 옵션 | 설명 |
+|------|------|
+| `cve_scope` | 의존성/메타데이터에 포함된 특정 CVE만 LLM 수정 대상으로 선택 |
+| `cwe_scope` | 예: `CWE-89`, `CWE-288`처럼 소스코드 취약점 유형 기준으로 수정안 생성 |
+| `rule_scope` | 예: `B608`처럼 Bandit/Semgrep rule ID 기준 선택 |
+| `max_llm_targets` | 한 번의 분석에서 LLM에 넘길 최대 취약점 수 |
+| `max_context_chars` | 취약점별 프롬프트 코드 문맥 최대 길이 |
+| `batch_llm` | 같은 파일 내 취약점을 하나의 JSON 프롬프트로 묶어 호출 수 감소 |
+
+대시보드의 `redscan` 화면에서 scope, 대상 수, 문맥 길이, batch 여부를 조정할 수 있습니다. 기본값은 `config/config.yaml`의 `llm.optimization`에 정의되어 있습니다.
+
+기본 scope는 소스코드에서 안정적으로 분류되는 고위험 CWE를 우선합니다:
+
+```text
+CWE-89,CWE-78,CWE-79,CWE-288,CWE-502,CWE-22,CWE-798
+```
+
+`SQLI`, `AUTH-BYPASS`, `PATH-TRAVERSAL` 같은 별칭도 내부적으로 CWE scope로 매핑됩니다. CVE scope는 `pip-audit`, `npm audit`처럼 의존성 취약점에 CVE가 붙는 경우에 더 적합합니다.
 
 ## 설치 및 실행
 

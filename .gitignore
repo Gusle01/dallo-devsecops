@@ -19,7 +19,9 @@ venv/
 *.swo
 
 # Reports (분석 결과 — 런타임 생성)
-reports/
+reports/*
+!reports/
+!reports/*.py
 *.json.bak
 
 # Uploads

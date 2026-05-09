@@ -17,3 +17,46 @@
 검증
 - DATABASE_URL이 빈 값이어도 SQLite DB 초기화가 정상 동작하는 것을 확인함.
 - npm run build로 대시보드 빌드가 정상 완료되는 것을 확인함.
+
+3. full scan에서 Java SQL Injection이 clean으로 나오는 문제 수정
+- 문제: 대시보드 빠른 스캔에서는 Java SQL Injection 가능성이 표시되지만, scan 실행 결과는 clean으로 표시됨.
+- 원인: full scan은 Semgrep에 의존하고 있었고, Semgrep이 설치되어 있지 않거나 룰셋이 해당 문자열 결합 패턴을 놓치면 취약점 0건으로 처리됐음.
+- 수정: Semgrep 결과에 로컬 휴리스틱 분석 결과를 병합하도록 변경함. Semgrep이 없거나 결과가 없어도 대표적인 SQL Injection, Command Injection, 하드코딩 시크릿, 취약 해시 패턴을 탐지함.
+- 수정 파일: analyzer/heuristic_runner.py, analyzer/semgrep_runner.py, tests/test_semgrep_runner.py
+
+검증
+- 사용자가 제보한 Java SQL Injection 샘플이 HEUR-SQL-INJECT 취약점으로 탐지되는 것을 확인함.
+
+4. start.py 실행 시 DALLO_ENCRYPTION_KEY를 못 읽는 문제 수정
+- 문제: .env 파일이 있어도 start.py 실행 중 db.service import 단계에서 암호화 키 미설정 오류가 발생함.
+- 원인: start.py가 .env 파일 존재 여부만 확인하고 실제 환경변수 로드를 하지 않았음. 또한 로컬 .env의 DALLO_ENCRYPTION_KEY 값이 비어 있었음.
+- 수정: start.py의 setup_env()에서 .env 경로를 명시해 load_dotenv()를 호출하도록 변경함. 로컬 .env에는 생성한 암호화 키를 설정함.
+- 수정 파일: start.py, .env
+
+검증
+- start.setup_env(), start.init_db(), start.seed_sample_data() 흐름이 암호화 키 오류 없이 통과하는 것을 확인함.
+
+5. LLM quota 오류 안내 및 provider 선택 기능 개선
+- 문제: Gemini API quota 초과(429 RESOURCE_EXHAUSTED)로 수정안 생성이 실패하면 사용자가 원인을 파악하기 어려웠음.
+- 원인: 대시보드가 provider/model을 고정해 요청했고, 실패한 패치 설명에 API 원문 오류가 길게 표시됐음.
+- 수정: llm_patch 옵션을 기본 비활성화하고, 사용자가 LLM을 켰을 때 Gemini/OpenRouter provider와 모델을 선택할 수 있도록 변경함. 429 quota 오류와 API 키 누락 오류는 대시보드에서 짧은 한국어 안내로 표시되도록 개선함. 백엔드 결과에도 llm_error를 포함하도록 변경함.
+- 수정 파일: dashboard/src/components/AnalyzeView.jsx, analyzer/pipeline.py
+
+검증
+- npm run build로 대시보드 빌드가 정상 완료되는 것을 확인함.
+- pytest로 semgrep fallback 테스트와 파이프라인 통합 테스트가 통과하는 것을 확인함.
+
+6. Gemini 기본 모델 원복
+- 문제: Gemini 기본 모델을 변경했으나 이전 설정을 유지해야 함.
+- 수정: 백엔드 기본 모델, Gemini provider 기본값, 대시보드 선택 목록 및 표시 문구를 기존 gemini-2.0-flash-lite 기준으로 되돌림.
+- 수정 파일: api/server.py, api/tasks.py, analyzer/pipeline.py, agent/providers/gemini_provider.py, dashboard/src/App.jsx, dashboard/src/components/AnalyzeView.jsx, dashboard/src/components/ReportView.jsx, scripts/run_analysis.py
+
+7. API Gateway LLM provider 추가
+- 문제: Gemini quota 초과 시 사용할 대체 LLM provider가 필요함.
+- 수정: OpenAI Chat Completions 호환 API Gateway provider를 추가하고, 대시보드 LLM provider 선택 목록에 gateway를 추가함. Gateway 키와 Base URL은 환경변수로만 설정하도록 함.
+- 수정 파일: agent/providers/gateway_provider.py, agent/provider_factory.py, dashboard/src/components/AnalyzeView.jsx, .env.example
+
+8. LLM 기본 provider를 Gateway로 변경
+- 문제: Gateway provider를 추가했지만 기본값이 Gemini라서 사용자가 provider를 바꾸지 않으면 계속 Gemini quota 오류가 발생함.
+- 수정: API 요청 모델, Celery task, 파이프라인, 대시보드 기본 provider/model을 gateway/claude-sonnet-4-6 기준으로 변경함.
+- 수정 파일: api/server.py, api/tasks.py, analyzer/pipeline.py, dashboard/src/components/AnalyzeView.jsx, .env.example

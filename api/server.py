@@ -12,7 +12,7 @@ from fastapi import FastAPI, Query, UploadFile, File, Form, BackgroundTasks, Dep
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
 from api.auth import verify_api_key
 import json
@@ -75,8 +75,15 @@ class AnalyzeRequest(BaseModel):
     filename: str = "uploaded_code.py"
     use_llm: bool = True
     multi_patch: bool = False
-    provider: str = "gemini"
-    model: str = "gemini-2.0-flash-lite"
+    provider: str = "gateway"
+    model: str = "claude-sonnet-4-6"
+    cve_scope: Optional[List[str]] = None
+    cwe_scope: Optional[List[str]] = None
+    rule_scope: Optional[List[str]] = None
+    max_llm_targets: Optional[int] = None
+    max_context_chars: Optional[int] = None
+    batch_llm: Optional[bool] = None
+    llm_audit_when_clean: bool = False
 
 
 class ApplyPatchRequest(BaseModel):
@@ -233,6 +240,21 @@ QUICK_SCAN_RULES = [
         "languages": ["python", "java", "javascript", "c", "cpp", "go"],
         "message": "보안 목적(토큰, 키 생성)에는 secrets 모듈이나 crypto.randomBytes를 사용하세요.",
     },
+    # Auth Bypass / Business Logic
+    {
+        "id": "QS-AUTH-BYPASS-USER-CONTROLLED-ID",
+        "title": "사용자 제어 계정 ID 기반 인증 우회 가능성",
+        "severity": "HIGH",
+        "cwe": "CWE-288",
+        "patterns": [
+            r"@RequestParam\s+String\s+userId",
+            r"verifyAccount\s*\(\s*Integer\.valueOf\s*\(\s*userId\s*\)",
+            r"setValue\s*\(\s*[\"']account-verified-id[\"']\s*,\s*userId\s*\)",
+        ],
+        "languages": ["java"],
+        "message": "요청 파라미터의 userId를 신뢰해 계정 검증 세션을 설정할 수 있습니다. 인증된 사용자 컨텍스트와 서버 측 소유권 검증을 사용하세요.",
+        "require_all": True,
+    },
 ]
 
 
@@ -255,6 +277,27 @@ def _quick_scan(code: str, language: str) -> list:
     for rule in QUICK_SCAN_RULES:
         if language not in rule["languages"]:
             continue
+        if rule.get("require_all"):
+            if not all(re.search(pattern, code, re.IGNORECASE) for pattern in rule["patterns"]):
+                continue
+            line_num = 1
+            line_text = ""
+            for idx, candidate in enumerate(lines, 1):
+                if "account-verified-id" in candidate or "verifyAccount" in candidate:
+                    line_num = idx
+                    line_text = candidate
+                    break
+            findings.append({
+                "rule_id": rule["id"],
+                "title": rule["title"],
+                "severity": rule["severity"],
+                "cwe": rule["cwe"],
+                "line": line_num,
+                "code": line_text.strip(),
+                "message": rule["message"],
+            })
+            continue
+
         for pattern in rule["patterns"]:
             try:
                 regex = re.compile(pattern, re.IGNORECASE)
@@ -368,17 +411,79 @@ def root():
     return {"message": "Dallo DevSecOps API", "version": "1.0.0"}
 
 
+def _with_red_blue(data: dict) -> dict:
+    """Ensure API responses carry the Red Team / Blue Team posture block."""
+    if not data:
+        return data
+    from shared.red_blue import build_red_blue_summary, enrich_patch, enrich_vulnerability
+
+    data = _with_llm_audit_findings(data)
+    vulns = [enrich_vulnerability(v) for v in data.get("vulnerabilities", [])]
+    vuln_map = {v.get("id"): v for v in vulns}
+    patches = [
+        enrich_patch(p, vuln_map.get(p.get("vulnerability_id")))
+        for p in data.get("patches", [])
+    ]
+    data = {**data, "vulnerabilities": vulns, "patches": patches}
+    data["analysis_mode"] = "red_blue"
+    data["red_blue_summary"] = build_red_blue_summary(vulns, patches)
+    return data
+
+
+def _with_llm_audit_findings(data: dict) -> dict:
+    """Older clean-audit results stored findings outside vulnerabilities; normalize them."""
+    if not data or not isinstance(data, dict):
+        return data
+    audit = data.get("llm_audit") or {}
+    findings = audit.get("findings", []) if isinstance(audit, dict) else []
+    if not findings:
+        return data
+
+    vulns = list(data.get("vulnerabilities") or [])
+    existing_ids = {v.get("id") for v in vulns if isinstance(v, dict)}
+    filename = data.get("filename") or "uploaded_code"
+    for idx, finding in enumerate(findings, 1):
+        if not isinstance(finding, dict):
+            continue
+        line = int(finding.get("line_number") or finding.get("line") or 0)
+        vuln_id = f"llm_audit_{idx}_{line}"
+        if vuln_id in existing_ids:
+            continue
+        cwe = str(finding.get("cwe_id") or finding.get("cwe") or "").strip()
+        reason = str(finding.get("reason") or finding.get("description") or "")
+        recommendation = str(finding.get("recommendation") or "")
+        vulns.append({
+            "id": vuln_id,
+            "tool": "llm_audit",
+            "rule_id": f"LLM-AUDIT-{cwe or idx}",
+            "severity": str(finding.get("severity") or "LOW").upper(),
+            "confidence": "MEDIUM",
+            "title": str(finding.get("title") or "LLM audit finding"),
+            "description": f"{reason}\n\nRecommendation: {recommendation}".strip(),
+            "file_path": filename,
+            "line_number": line,
+            "code_snippet": str(finding.get("evidence") or ""),
+            "cwe_id": cwe or None,
+            "language": "unknown",
+            "more_info": "LLM clean audit: static/live scan missed finding",
+        })
+
+    summary = dict(data.get("summary") or {})
+    summary["total"] = len(vulns)
+    summary["high"] = sum(1 for v in vulns if str(v.get("severity", "")).upper() == "HIGH")
+    summary["medium"] = sum(1 for v in vulns if str(v.get("severity", "")).upper() == "MEDIUM")
+    summary["low"] = sum(1 for v in vulns if str(v.get("severity", "")).upper() == "LOW")
+    return {**data, "vulnerabilities": vulns, "summary": summary}
+
+
 @app.get("/api/stats", dependencies=[Depends(verify_api_key)])
 def get_stats():
     """대시보드 메인 통계 (DB 우선, 폴백: JSON 파일)"""
-    stats = db_service.get_stats()
-    if stats.get("total_issues", 0) > 0:
-        return stats
-
-    # DB에 데이터 없으면 JSON 파일 폴백
     full = load_full_result()
     if full:
+        full = _with_red_blue(full)
         summary = full.get("summary", {})
+        red_blue = full.get("red_blue_summary", {})
         return {
             "total_issues": summary.get("total", 0),
             "high": summary.get("high", 0),
@@ -388,7 +493,14 @@ def get_stats():
             "patches_verified": summary.get("patches_verified", 0),
             "duration_seconds": full.get("duration_seconds"),
             "session_id": full.get("session_id", ""),
+            "analysis_mode": "red_blue",
+            "red_blue_summary": red_blue,
         }
+
+    stats = db_service.get_stats()
+    if stats.get("total_issues", 0) > 0:
+        stats["analysis_mode"] = "red_blue"
+        return stats
 
     report = load_bandit_report()
     totals = report.get("metrics", {}).get("_totals", {})
@@ -400,6 +512,7 @@ def get_stats():
         "low": totals.get("SEVERITY.LOW", 0),
         "patches_generated": 0,
         "patches_verified": 0,
+        "analysis_mode": "red_blue",
     }
 
 
@@ -410,7 +523,7 @@ def get_vulnerabilities(
     file_path: Optional[str] = Query(None, description="파일 경로 필터"),
 ):
     """취약점 목록 조회 (필터 지원)"""
-    full = load_full_result()
+    full = _with_red_blue(load_full_result())
 
     if full and full.get("vulnerabilities"):
         vulns = full["vulnerabilities"]
@@ -442,6 +555,8 @@ def get_vulnerabilities(
     if file_path:
         vulns = [v for v in vulns if file_path in v.get("file_path", "")]
 
+    from shared.red_blue import enrich_vulnerability
+    vulns = [enrich_vulnerability(v) for v in vulns]
     return {"count": len(vulns), "vulnerabilities": vulns}
 
 
@@ -485,7 +600,7 @@ def get_vulnerabilities_by_type():
 @app.get("/api/patches", dependencies=[Depends(verify_api_key)])
 def get_patches():
     """LLM 수정 제안 목록"""
-    full = load_full_result()
+    full = _with_red_blue(load_full_result())
     patches = full.get("patches", [])
 
     # 취약점 정보와 매칭
@@ -506,6 +621,26 @@ def get_patches():
     return {"count": len(enriched), "patches": enriched}
 
 
+@app.get("/api/red-blue/summary", dependencies=[Depends(verify_api_key)])
+def get_red_blue_summary():
+    """Red Team 공격 분석 / Blue Team 방어 검증 요약"""
+    full = _with_red_blue(load_full_result())
+    if full and full.get("red_blue_summary"):
+        return full["red_blue_summary"]
+
+    latest = db_service.get_latest_analysis()
+    if latest:
+        return _with_red_blue(latest).get("red_blue_summary", {})
+
+    return {
+        "mode": "red_blue",
+        "system_label": "AI-based attack and defense analysis system",
+        "red_team": {"total_findings": 0, "critical_or_high": 0, "unique_cwe": 0, "affected_files": 0},
+        "blue_team": {"patches_generated": 0, "patches_verified": 0, "patches_needing_review": 0},
+        "comparison": {"before_total": 0, "after_total": 0, "fixed_count": 0, "remaining_count": 0, "introduced_count": 0, "risk_reduction_percent": 0.0},
+    }
+
+
 @app.get("/api/sessions", dependencies=[Depends(verify_api_key)])
 def get_sessions():
     """분석 세션 이력 (DB)"""
@@ -519,14 +654,29 @@ def get_session_detail(session_id: str):
     result = db_service.get_analysis_by_session(session_id)
     if not result:
         return {"error": "Session not found"}
-    return result
+    return _with_red_blue(result)
 
 
 # ============================================================
 # 코드 분석 실행 API
 # ============================================================
 
-def _run_analysis(job_id: str, code: str, filename: str, use_llm: bool, provider: str, model: str, multi_patch: bool = False):
+def _run_analysis(
+    job_id: str,
+    code: str,
+    filename: str,
+    use_llm: bool,
+    provider: str,
+    model: str,
+    multi_patch: bool = False,
+    cve_scope: Optional[list[str]] = None,
+    cwe_scope: Optional[list[str]] = None,
+    rule_scope: Optional[list[str]] = None,
+    max_llm_targets: Optional[int] = None,
+    max_context_chars: Optional[int] = None,
+    batch_llm: Optional[bool] = None,
+    llm_audit_when_clean: bool = False,
+):
     """백그라운드에서 분석 파이프라인 실행 (analyzer.pipeline에 위임)"""
     from analyzer.pipeline import execute_pipeline
 
@@ -539,7 +689,15 @@ def _run_analysis(job_id: str, code: str, filename: str, use_llm: bool, provider
         result = execute_pipeline(
             job_id=job_id, code=code, filename=filename,
             use_llm=use_llm, provider=provider, model=model,
-            multi_patch=multi_patch, on_progress=on_progress,
+            multi_patch=multi_patch,
+            cve_scope=cve_scope,
+            cwe_scope=cwe_scope,
+            rule_scope=rule_scope,
+            max_llm_targets=max_llm_targets,
+            max_context_chars=max_context_chars,
+            batch_llm=batch_llm,
+            llm_audit_when_clean=llm_audit_when_clean,
+            on_progress=on_progress,
         )
 
         analysis_jobs[job_id]["language"] = result.language
@@ -587,6 +745,10 @@ def start_analysis(req: AnalyzeRequest, background_tasks: BackgroundTasks):
             code=req.code, filename=req.filename,
             use_llm=req.use_llm, provider=req.provider,
             model=req.model, multi_patch=req.multi_patch,
+            cve_scope=req.cve_scope, cwe_scope=req.cwe_scope,
+            rule_scope=req.rule_scope, max_llm_targets=req.max_llm_targets,
+            max_context_chars=req.max_context_chars, batch_llm=req.batch_llm,
+            llm_audit_when_clean=req.llm_audit_when_clean,
         )
         return {"job_id": task.id, "status": "queued", "message": "분석이 시작되었습니다. (Celery)", "backend": "celery"}
 
@@ -608,6 +770,9 @@ def start_analysis(req: AnalyzeRequest, background_tasks: BackgroundTasks):
     background_tasks.add_task(
         _run_analysis, job_id, req.code, req.filename,
         req.use_llm, req.provider, req.model, req.multi_patch,
+        req.cve_scope, req.cwe_scope, req.rule_scope,
+        req.max_llm_targets, req.max_context_chars, req.batch_llm,
+        req.llm_audit_when_clean,
     )
 
     return {"job_id": job_id, "status": "queued", "message": "분석이 시작되었습니다.", "backend": "memory"}
@@ -854,17 +1019,14 @@ def generate_report(
     """분석 리포트를 생성하고 다운로드 경로를 반환합니다."""
     from reports.report_generator import ReportGenerator
 
-    # 데이터 로드
     if session_id:
         data = db_service.get_analysis_by_session(session_id)
     else:
-        data = db_service.get_latest_analysis()
+        data = load_full_result() or db_service.get_latest_analysis()
 
     if not data:
-        full = load_full_result()
-        if not full:
-            return {"error": "분석 데이터가 없습니다. 먼저 코드 분석을 실행하세요."}
-        data = full
+        return {"error": "분석 데이터가 없습니다. 먼저 코드 분석을 실행하세요."}
+    data = _with_red_blue(data)
 
     # 의존성 스캔 포함
     deps_data = None
@@ -913,13 +1075,11 @@ def preview_report(
     if session_id:
         data = db_service.get_analysis_by_session(session_id)
     else:
-        data = db_service.get_latest_analysis()
+        data = load_full_result() or db_service.get_latest_analysis()
 
     if not data:
-        full = load_full_result()
-        if not full:
-            return {"error": "분석 데이터가 없습니다."}
-        data = full
+        return {"error": "분석 데이터가 없습니다."}
+    data = _with_red_blue(data)
 
     deps_data = None
     if include_deps:

@@ -27,23 +27,25 @@ export default function ReportView() {
   const [error, setError] = useState(null)
 
   const fetchReportData = async () => {
-    const [statsResp, vulnsResp, patchesResp] = await Promise.all([
+    const [statsResp, vulnsResp, patchesResp, redBlueResp] = await Promise.all([
       apiFetch(`${API}/api/stats`),
       apiFetch(`${API}/api/vulnerabilities`),
       apiFetch(`${API}/api/patches`),
+      apiFetch(`${API}/api/red-blue/summary`),
     ])
     const stats = await statsResp.json()
     const vulnsData = await vulnsResp.json()
     const patchesData = await patchesResp.json()
+    const redBlue = await redBlueResp.json()
 
     const vulns = vulnsData.vulnerabilities || []
     const patches = patchesData.patches || []
 
     if (vulns.length === 0 && (stats.total_issues || 0) === 0) return null
-    return { stats, vulns, patches }
+    return { stats, vulns, patches, redBlue }
   }
 
-  const buildHtml = (stats, vulns, patches) => {
+  const buildHtml = (stats, vulns, patches, redBlue = {}) => {
     const now = new Date()
     const dateStr = now.toISOString().slice(0, 19).replace('T', ' ')
     const issueId = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}-${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`
@@ -58,6 +60,9 @@ export default function ReportView() {
     const riskLevel = riskScore < 10 ? 'GREEN' : riskScore < 30 ? 'AMBER' : riskScore < 60 ? 'RED' : 'CRITICAL'
     const riskColor = { GREEN: T.phosphor, AMBER: T.amber, RED: T.blood, CRITICAL: T.blood }[riskLevel]
     const fixRate = total > 0 && patchVer > 0 ? Math.round(patchVer / total * 100) : 0
+    const red = redBlue.red_team || {}
+    const blue = redBlue.blue_team || {}
+    const cmp = redBlue.comparison || {}
 
     const max = Math.max(total, 1)
     const bar = (n, color) => {
@@ -96,6 +101,8 @@ export default function ReportView() {
           &nbsp;·&nbsp; <span class="tool">${v.tool || 'static'}</span>
         </p>
         <p class="entry__body">${escHtml(v.description || '--')}</p>
+        ${v.attack_scenario ? `<p class="entry__body"><strong>[RED]</strong> ${escHtml(v.attack_scenario)}</p>` : ''}
+        ${v.blue_team_strategy ? `<p class="entry__body"><strong>[BLUE]</strong> ${escHtml(v.blue_team_strategy)}</p>` : ''}
         <p class="entry__locus">@ ${v.file_path}:${v.line_number}</p>
         ${snippet}
       </article>`
@@ -254,7 +261,7 @@ export default function ReportView() {
       <span class="wordmark">dallo<span class="dim">.</span><span class="accent">sec</span><span class="caret"></span></span>
       <span class="bracket">]</span>
     </div>
-    <div class="tagline"># static analysis · llm patch synthesis · audit trail</div>
+    <div class="tagline"># red team scan · blue team defense · before/after evidence</div>
     <div class="meta">
       <span>report <strong>${issueId}</strong></span>
       <span>generated <strong>${dateStr}</strong></span>
@@ -263,11 +270,11 @@ export default function ReportView() {
     </div>
   </header>
 
-  <h1>findings_<em>report</em></h1>
-  <p class="deck">${total} issues across the audit · severity weighted score ${riskScore} · risk class ${riskLevel}${fixRate > 0 ? ` · fix rate ${fixRate}%` : ''}</p>
+  <h1>attack_defense_<em>report</em></h1>
+  <p class="deck">${total} red team findings · ${patchGen} blue team actions · risk class ${riskLevel}${fixRate > 0 ? ` · fix rate ${fixRate}%` : ''}</p>
 
-  <h2>summary</h2>
-  <div class="h2-deck">snapshot of the most recent audit, in counts</div>
+  <h2>red_blue_summary</h2>
+  <div class="h2-deck">attack surface, remediation evidence, and before/after posture</div>
 
   <div class="figures">
     <div class="fig" style="border-color:${T.ruleHot}">
@@ -303,6 +310,14 @@ export default function ReportView() {
   </div>
 
   <div class="verdict">
+    red team: <strong>${red.total_findings || 0}</strong> findings across <strong>${red.affected_files || 0}</strong> files
+    &nbsp; · &nbsp; unique cwe <strong>${red.unique_cwe || 0}</strong>
+    <br/>
+    blue team: <strong>${blue.patches_generated || 0}</strong> drafted, <strong>${blue.patches_verified || 0}</strong> verified
+    &nbsp; · &nbsp; risk reduction <strong>${cmp.risk_reduction_percent || 0}%</strong>
+  </div>
+
+  <div class="verdict">
     state <span class="level" style="color:${riskColor};border-color:${riskColor}">${riskLevel}</span>
     &nbsp; · &nbsp; weighted score <strong>${riskScore}</strong>
     ${fixRate > 0 ? `&nbsp; · &nbsp; fix rate <strong>${fixRate}%</strong>` : ''}
@@ -315,21 +330,21 @@ export default function ReportView() {
   </div>
 
   ${vulns.length > 0 ? `
-  <h2>findings</h2>
-  <div class="h2-deck">complete listing · ordered by severity, then file</div>
+  <h2>redteam_findings</h2>
+  <div class="h2-deck">complete attack-oriented listing · ordered by severity, then file</div>
   <table>
     <thead><tr><th>NN</th><th>SEV</th><th>RULE</th><th>TITLE</th><th>FILE</th><th>LN</th><th>CWE</th></tr></thead>
     <tbody>${vulnRows}</tbody>
   </table>
 
-  <h2>findings_detail</h2>
-  <div class="h2-deck">expanded entries with code excerpts</div>
+  <h2>attack_detail</h2>
+  <div class="h2-deck">expanded red team entries with code excerpts and defense strategy</div>
   ${vulnDetails}
   ` : ''}
 
   ${validPatches.length > 0 ? `
-  <h2>patches</h2>
-  <div class="h2-deck">llm-drafted remedies · ${patchVer > 0 ? 'witnessed by re-analysis' : 'awaiting witness'}</div>
+  <h2>blueteam_actions</h2>
+  <div class="h2-deck">llm-drafted defense · ${patchVer > 0 ? 'witnessed by re-analysis' : 'awaiting witness'}</div>
   ${patchDetails}
   ` : ''}
 
@@ -344,7 +359,7 @@ export default function ReportView() {
 </html>`
   }
 
-  const buildMarkdown = (stats, vulns, patches) => {
+  const buildMarkdown = (stats, vulns, patches, redBlue = {}) => {
     const now = new Date().toISOString().slice(0, 19).replace('T', ' ')
     const total = stats.total_issues || 0
     const high = stats.high || 0
@@ -353,13 +368,18 @@ export default function ReportView() {
     const riskScore = high * 10 + medium * 5 + low * 1
     const riskLevel = riskScore < 10 ? 'GREEN' : riskScore < 30 ? 'AMBER' : riskScore < 60 ? 'RED' : 'CRITICAL'
 
-    let md = `# dallo.sec / report\n\n\`\`\`\n# generated: ${now}\n# state:     ${riskLevel}\n# score:     ${riskScore}\n\`\`\`\n\n---\n\n## summary\n\n`
+    const red = redBlue.red_team || {}
+    const blue = redBlue.blue_team || {}
+    const cmp = redBlue.comparison || {}
+    let md = `# dallo.sec / attack-defense report\n\n\`\`\`\n# generated: ${now}\n# state:     ${riskLevel}\n# score:     ${riskScore}\n# mode:      red_blue\n\`\`\`\n\n---\n\n## red_blue_summary\n\n`
     md += `| key | label     | count |\n|-----|-----------|------:|\n`
     md += `| TOT | total     | **${total}** |\n| HIG | high      | ${high} |\n| MED | med       | ${medium} |\n| LOW | low       | ${low} |\n`
     md += `| GEN | drafted   | ${stats.patches_generated || 0} |\n| VER | witnessed | ${stats.patches_verified || 0} |\n\n`
+    md += `- Red Team: ${red.total_findings || 0} findings, ${red.affected_files || 0} affected files, ${red.unique_cwe || 0} unique CWE\n`
+    md += `- Blue Team: ${blue.patches_generated || 0} drafted, ${blue.patches_verified || 0} verified, ${cmp.risk_reduction_percent || 0}% estimated risk reduction\n\n`
 
     if (vulns.length > 0) {
-      md += `---\n\n## findings\n\n| NN | SEV | RULE | TITLE | FILE | LN | CWE |\n|---:|-----|------|-------|------|---:|-----|\n`
+      md += `---\n\n## redteam_findings\n\n| NN | SEV | RULE | TITLE | FILE | LN | CWE |\n|---:|-----|------|-------|------|---:|-----|\n`
       vulns.forEach((v, i) => {
         md += `| ${String(i+1).padStart(2,'0')} | [${v.severity}] | \`${v.rule_id}\` | ${v.title} | \`${(v.file_path||'').split('/').pop()}\` | :${v.line_number} | ${v.cwe_id||'--'} |\n`
       })
@@ -368,7 +388,7 @@ export default function ReportView() {
 
     const validPatches = patches.filter(p => p.fixed_code)
     if (validPatches.length > 0) {
-      md += `---\n\n## patches\n\n`
+      md += `---\n\n## blueteam_actions\n\n`
       validPatches.forEach((p, i) => {
         const typeLabel = { minimal: 'MINIMAL', recommended: 'RECOMMENDED', structural: 'STRUCTURAL' }[p.fix_type] || 'PATCH'
         md += `### [${String(i+1).padStart(2,'0')}] ${typeLabel} / \`${p.vulnerability_id || '--'}\`\n\n`
@@ -390,7 +410,7 @@ export default function ReportView() {
         setLoading(false)
         return
       }
-      const html = buildHtml(data.stats, data.vulns, data.patches)
+      const html = buildHtml(data.stats, data.vulns, data.patches, data.redBlue)
       const w = window.open('', '_blank')
       w.document.write(html)
       w.document.close()
@@ -409,7 +429,7 @@ export default function ReportView() {
         setLoading(false)
         return
       }
-      const md = buildMarkdown(data.stats, data.vulns, data.patches)
+      const md = buildMarkdown(data.stats, data.vulns, data.patches, data.redBlue)
       const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')

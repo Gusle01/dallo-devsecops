@@ -1,0 +1,71 @@
+rules:
+  - id: dallo.java.ssrf.user-controlled-url
+    languages: [java]
+    severity: ERROR
+    message: User-controlled URL reaches a server-side HTTP request sink. Validate scheme/host with an allowlist and block internal network ranges.
+    metadata:
+      cwe:
+        - "CWE-918: Server-Side Request Forgery (SSRF)"
+      owasp:
+        - A10:2021 - Server-Side Request Forgery
+      category: security
+      technology:
+        - spring
+        - java
+    patterns:
+      - pattern-either:
+          - pattern: |
+              new URL($URL).openStream(...)
+          - pattern: |
+              new URL($URL).openConnection(...)
+          - pattern: |
+              $T.getForObject($URL, ...)
+          - pattern: |
+              $T.getForEntity($URL, ...)
+          - pattern: |
+              $T.exchange($URL, ...)
+          - pattern: |
+              $CLIENT.send($REQ, ...)
+          - pattern: |
+              $CLIENT.execute($REQ, ...)
+          - pattern: |
+              $WEBCLIENT.get().uri($URL, ...)
+      - pattern-either:
+          - pattern-inside: |
+              $RET $METHOD(..., @RequestParam ... $URL, ...) {
+                ...
+              }
+          - pattern-inside: |
+              $RET $METHOD(..., @PathVariable ... $URL, ...) {
+                ...
+              }
+          - pattern-inside: |
+              $RET $METHOD(..., HttpServletRequest $REQ, ...) {
+                ...
+              }
+
+  - id: dallo.java.webgoat.ssrf-lesson-url-selection
+    languages: [java]
+    severity: WARNING
+    message: WebGoat-style SSRF lesson pattern. A request-controlled URL/route selection is reflected into a resource target; treat as benchmark/lesson SSRF and require allowlisted server-side resource selection.
+    metadata:
+      cwe:
+        - "CWE-918: Server-Side Request Forgery (SSRF)"
+      owasp:
+        - A10:2021 - Server-Side Request Forgery
+      category: security-benchmark
+      technology:
+        - webgoat
+        - spring
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $URL.matches(...)
+          - pattern: |
+              $HTML.append(... + $URL + ...)
+          - pattern: |
+              $HTML.append(String.format(..., $URL, ...))
+      - pattern-inside: |
+          $RET $METHOD(..., @RequestParam String $URL, ...) {
+            ...
+          }
