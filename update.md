@@ -16,6 +16,7 @@
 - Red Team / Blue Team 기반 AI 공격·방어 분석 시스템 방향을 README에 유지하고, 현재 구현된 `user_prompt` 기능을 LLM 속도 최적화 섹션에 추가함.
 - Gemini 중심 환경변수 설명을 API Gateway/Claude 기본 흐름으로 수정함.
 - 정확도 측정 계획을 README에 추가함.
+- 사용자 코드 입력부터 Red Team scan, LLM 기본 보안 프롬프트, 사용자 custom instruction 병합, Blue Team 수정안 검증까지의 프롬프트 반영 흐름을 README에 추가함.
 
 ### 검증
 
