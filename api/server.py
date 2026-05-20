@@ -77,6 +77,7 @@ class AnalyzeRequest(BaseModel):
     multi_patch: bool = False
     provider: str = "gateway"
     model: str = "claude-sonnet-4-6"
+    user_prompt: Optional[str] = Field(default=None, max_length=2000)
     cve_scope: Optional[List[str]] = None
     cwe_scope: Optional[List[str]] = None
     rule_scope: Optional[List[str]] = None
@@ -676,6 +677,7 @@ def _run_analysis(
     max_context_chars: Optional[int] = None,
     batch_llm: Optional[bool] = None,
     llm_audit_when_clean: bool = False,
+    user_prompt: Optional[str] = None,
 ):
     """백그라운드에서 분석 파이프라인 실행 (analyzer.pipeline에 위임)"""
     from analyzer.pipeline import execute_pipeline
@@ -697,6 +699,7 @@ def _run_analysis(
             max_context_chars=max_context_chars,
             batch_llm=batch_llm,
             llm_audit_when_clean=llm_audit_when_clean,
+            user_prompt=user_prompt,
             on_progress=on_progress,
         )
 
@@ -749,6 +752,7 @@ def start_analysis(req: AnalyzeRequest, background_tasks: BackgroundTasks):
             rule_scope=req.rule_scope, max_llm_targets=req.max_llm_targets,
             max_context_chars=req.max_context_chars, batch_llm=req.batch_llm,
             llm_audit_when_clean=req.llm_audit_when_clean,
+            user_prompt=req.user_prompt,
         )
         return {"job_id": task.id, "status": "queued", "message": "분석이 시작되었습니다. (Celery)", "backend": "celery"}
 
@@ -772,7 +776,7 @@ def start_analysis(req: AnalyzeRequest, background_tasks: BackgroundTasks):
         req.use_llm, req.provider, req.model, req.multi_patch,
         req.cve_scope, req.cwe_scope, req.rule_scope,
         req.max_llm_targets, req.max_context_chars, req.batch_llm,
-        req.llm_audit_when_clean,
+        req.llm_audit_when_clean, req.user_prompt,
     )
 
     return {"job_id": job_id, "status": "queued", "message": "분석이 시작되었습니다.", "backend": "memory"}

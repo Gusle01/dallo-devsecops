@@ -395,6 +395,7 @@ export default function AnalyzeView({ onComplete }) {
   const [batchLlm, setBatchLlm] = useState(true)
   const [llmAuditWhenClean, setLlmAuditWhenClean] = useState(true)
   const [scopeText, setScopeText] = useState('')
+  const [userPrompt, setUserPrompt] = useState('')
   const [maxTargets, setMaxTargets] = useState(10)
   const [maxContextChars, setMaxContextChars] = useState(2400)
   const [status, setStatus] = useState(null) // null | polling | completed | failed
@@ -597,6 +598,7 @@ export default function AnalyzeView({ onComplete }) {
         multi_patch: multiPatch,
         provider,
         model,
+        user_prompt: userPrompt.trim() || null,
         batch_llm: batchLlm,
         llm_audit_when_clean: llmAuditWhenClean,
         max_llm_targets: Number(maxTargets) || null,
@@ -1182,63 +1184,82 @@ ai_audit_clean
             )}
           </div>
           {useLlm && (
-            <div style={{
-              width: '100%',
-              display: 'grid',
-              gridTemplateColumns: 'minmax(220px, 1fr) 120px 150px',
-              gap: 10,
-              alignItems: 'center',
-            }}>
-              <input
-                value={scopeText}
-                onChange={e => setScopeText(e.target.value)}
-                placeholder="scope override: CWE-89,CWE-288,B608,AUTH-BYPASS"
+            <div style={{ width: '100%', display: 'grid', gap: 10 }}>
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'minmax(220px, 1fr) 120px 150px',
+                gap: 10,
+                alignItems: 'center',
+              }}>
+                <input
+                  value={scopeText}
+                  onChange={e => setScopeText(e.target.value)}
+                  placeholder="scope override: CWE-89,CWE-288,B608,AUTH-BYPASS"
+                  style={{
+                    height: 32,
+                    borderRadius: 0,
+                    border: '1px solid var(--rule-hot)',
+                    background: 'var(--paper-highlight)',
+                    color: 'var(--ink)',
+                    fontSize: 11,
+                    fontFamily: 'var(--font-mono)',
+                    padding: '0 10px',
+                  }}
+                />
+                <input
+                  type="number"
+                  min="1"
+                  max="50"
+                  value={maxTargets}
+                  onChange={e => setMaxTargets(e.target.value)}
+                  title="max LLM targets"
+                  style={{
+                    height: 32,
+                    borderRadius: 0,
+                    border: '1px solid var(--rule-hot)',
+                    background: 'var(--paper-highlight)',
+                    color: 'var(--ink)',
+                    fontSize: 11,
+                    fontFamily: 'var(--font-mono)',
+                    padding: '0 10px',
+                  }}
+                />
+                <input
+                  type="number"
+                  min="600"
+                  max="12000"
+                  step="100"
+                  value={maxContextChars}
+                  onChange={e => setMaxContextChars(e.target.value)}
+                  title="max context chars per finding"
+                  style={{
+                    height: 32,
+                    borderRadius: 0,
+                    border: '1px solid var(--rule-hot)',
+                    background: 'var(--paper-highlight)',
+                    color: 'var(--ink)',
+                    fontSize: 11,
+                    fontFamily: 'var(--font-mono)',
+                    padding: '0 10px',
+                  }}
+                />
+              </div>
+              <textarea
+                value={userPrompt}
+                onChange={e => setUserPrompt(e.target.value)}
+                maxLength={2000}
+                placeholder="custom LLM instruction: e.g. keep public API unchanged, prefer minimal dependency changes, explain red-team exploit path first"
                 style={{
-                  height: 32,
+                  minHeight: 62,
+                  resize: 'vertical',
                   borderRadius: 0,
                   border: '1px solid var(--rule-hot)',
                   background: 'var(--paper-highlight)',
                   color: 'var(--ink)',
                   fontSize: 11,
+                  lineHeight: 1.55,
                   fontFamily: 'var(--font-mono)',
-                  padding: '0 10px',
-                }}
-              />
-              <input
-                type="number"
-                min="1"
-                max="50"
-                value={maxTargets}
-                onChange={e => setMaxTargets(e.target.value)}
-                title="max LLM targets"
-                style={{
-                  height: 32,
-                  borderRadius: 0,
-                  border: '1px solid var(--rule-hot)',
-                  background: 'var(--paper-highlight)',
-                  color: 'var(--ink)',
-                  fontSize: 11,
-                  fontFamily: 'var(--font-mono)',
-                  padding: '0 10px',
-                }}
-              />
-              <input
-                type="number"
-                min="600"
-                max="12000"
-                step="100"
-                value={maxContextChars}
-                onChange={e => setMaxContextChars(e.target.value)}
-                title="max context chars per finding"
-                style={{
-                  height: 32,
-                  borderRadius: 0,
-                  border: '1px solid var(--rule-hot)',
-                  background: 'var(--paper-highlight)',
-                  color: 'var(--ink)',
-                  fontSize: 11,
-                  fontFamily: 'var(--font-mono)',
-                  padding: '0 10px',
+                  padding: '8px 10px',
                 }}
               />
             </div>

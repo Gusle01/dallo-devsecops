@@ -135,8 +135,11 @@ Blue Team 결과는 해당 공격 경로를 어떤 방식으로 차단하는지 
 | `max_llm_targets` | 한 번의 분석에서 LLM에 넘길 최대 취약점 수 |
 | `max_context_chars` | 취약점별 프롬프트 코드 문맥 최대 길이 |
 | `batch_llm` | 같은 파일 내 취약점을 하나의 JSON 프롬프트로 묶어 호출 수 감소 |
+| `user_prompt` | 사용자가 대시보드에서 입력한 추가 분석/수정 지시를 LLM 프롬프트에 반영 |
 
 대시보드의 `redscan` 화면에서 scope, 대상 수, 문맥 길이, batch 여부를 조정할 수 있습니다. 기본값은 `config/config.yaml`의 `llm.optimization`에 정의되어 있습니다.
+
+`llm_patch`를 켜면 custom LLM instruction 입력창이 표시됩니다. 사용자는 "기존 public API 유지", "외부 의존성 추가 최소화", "Red Team 공격 경로를 먼저 설명" 같은 지시를 넣을 수 있습니다. 단, 보안을 약화하거나 취약 코드를 유지하라는 지시는 시스템 프롬프트에서 무시하도록 제한합니다.
 
 기본 scope는 소스코드에서 안정적으로 분류되는 고위험 CWE를 우선합니다:
 
@@ -145,6 +148,22 @@ CWE-89,CWE-78,CWE-79,CWE-288,CWE-502,CWE-22,CWE-798
 ```
 
 `SQLI`, `AUTH-BYPASS`, `PATH-TRAVERSAL` 같은 별칭도 내부적으로 CWE scope로 매핑됩니다. CVE scope는 `pip-audit`, `npm audit`처럼 의존성 취약점에 CVE가 붙는 경우에 더 적합합니다.
+
+### 정확도 측정 계획
+
+향후 실제 오픈소스 프로젝트와 benchmark 취약 코드셋을 대상으로 탐지 정확도와 방어 성공률을 측정합니다.
+
+| 지표 | 의미 |
+|------|------|
+| Precision | 탐지한 항목 중 실제 취약점인 비율 |
+| Recall | 실제 취약점 중 시스템이 탐지한 비율 |
+| F1-score | Precision과 Recall의 조화 평균 |
+| False Positive | 정상 코드를 취약점으로 잘못 탐지한 건수 |
+| False Negative | 실제 취약점을 놓친 건수 |
+| Patch Success Rate | LLM 수정안이 문법 검증과 보안 재검증을 통과한 비율 |
+| Risk Reduction | 수정 전/후 critical/high 취약점 감소율 |
+
+이를 위해 `test_targets/`와 WebGoat류 샘플을 baseline으로 사용하고, 이후 실제 오픈소스 프로젝트를 대상으로 수정 전/후 취약점 수와 위험도 변화를 비교합니다.
 
 ## 설치 및 실행
 
@@ -184,14 +203,16 @@ cp .env.example .env
 | 변수명 | 설명 | 생성 방법 |
 |--------|------|-----------|
 | `DALLO_ENCRYPTION_KEY` | DB 코드 스니펫 AES-256 암호화 키. **미설정 시 앱 시작 불가 (fail-fast)** | `python scripts/generate_encryption_key.py` |
-| `GEMINI_API_KEY` | LLM 수정안 생성용 (쉼표 구분 다중 키 지원) | [Google AI Studio](https://aistudio.google.com/) |
 
 #### 선택 환경변수
 
 | 변수명 | 기본값 | 설명 |
 |--------|--------|------|
 | `DALLO_API_KEYS` | (없음 → 인증 스킵 + 경고) | API 인증 키 (콤마 구분 다중 키) |
-| `LLM_PRIMARY_PROVIDER` | `gemini` | LLM 프로바이더 (`gemini`, `openrouter`) |
+| `LLM_PRIMARY_PROVIDER` | `gateway` | LLM 프로바이더 (`gateway`, `gemini`, `openrouter`) |
+| `GATEWAY_API_KEY` | — | API Gateway 기반 Claude/OpenAI 호환 LLM 호출 키 |
+| `GATEWAY_BASE_URL` | `https://factchat-cloud.mindlogic.ai/v1/gateway` | OpenAI Chat Completions 호환 Gateway Base URL |
+| `GEMINI_API_KEY` | — | Gemini 사용 시 필요 (쉼표 구분 다중 키 지원) |
 | `OPENROUTER_API_KEY` | — | OpenRouter 사용 시 필요 (Qwen 등) |
 | `CELERY_BROKER_URL` | `redis://localhost:6379/0` | Celery 브로커 |
 | `CELERY_RESULT_BACKEND` | `redis://localhost:6379/1` | Celery 결과 백엔드 |
@@ -385,7 +406,7 @@ dallo-devsecops/
 | 구분 | 기술 |
 |------|------|
 | **정적 분석** | Bandit 1.7+, Semgrep 1.50+, SonarQube 10 |
-| **AI/LLM** | Google Gemini 2.0 Flash Lite (메인), OpenRouter/Qwen (대체) |
+| **AI/LLM** | API Gateway/Claude Sonnet (기본), Google Gemini, OpenRouter/Qwen |
 | **민감정보 탐지** | Microsoft Presidio + 정규식 fallback |
 | **백엔드** | Python 3.11+, FastAPI, Celery, SQLAlchemy |
 | **비동기 큐** | Celery + Redis |

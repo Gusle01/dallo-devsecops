@@ -47,6 +47,7 @@ def execute_pipeline(
     max_context_chars: Optional[int] = None,
     batch_llm: Optional[bool] = None,
     llm_audit_when_clean: bool = False,
+    user_prompt: Optional[str] = None,
     on_progress: Optional[Callable[[str], None]] = None,
 ) -> PipelineResult:
     """
@@ -124,7 +125,9 @@ def execute_pipeline(
                 f"AI 수정안 생성 중... ({len(llm_targets)}/{len(vuln_reports)}건, "
                 f"batch={'on' if opt_config.batch_enabled and not multi_patch else 'off'})"
             )
-            patches, llm_error = _generate_patches(llm_targets, provider, model, multi_patch, opt_config)
+            patches, llm_error = _generate_patches(
+                llm_targets, provider, model, multi_patch, opt_config, user_prompt=user_prompt
+            )
             pipeline_result.llm_error = llm_error
         elif use_llm and llm_audit_when_clean:
             _progress("AI 클린 스캔 재검토 중...")
@@ -135,6 +138,7 @@ def execute_pipeline(
                 provider=provider,
                 model=model,
                 max_context_chars=max_context_chars,
+                user_prompt=user_prompt,
             )
             pipeline_result.llm_error = llm_error
             if llm_audit:
@@ -270,12 +274,17 @@ def _apply_red_team_context(vuln_reports: list):
 
 
 def _generate_patches(
-    llm_targets: list, provider: str, model: str, multi_patch: bool, opt_config=None
+    llm_targets: list,
+    provider: str,
+    model: str,
+    multi_patch: bool,
+    opt_config=None,
+    user_prompt: Optional[str] = None,
 ) -> tuple[list, str | None]:
     """LLM 수정안을 생성합니다. (에러 시 빈 리스트 + 에러 메시지 반환)"""
     try:
         from agent.llm_agent import DalloAgent
-        agent = DalloAgent(provider=provider, model=model)
+        agent = DalloAgent(provider=provider, model=model, user_prompt=user_prompt)
         patches = agent.generate_patches(
             llm_targets,
             multi=multi_patch,
@@ -295,11 +304,12 @@ def _generate_clean_audit(
     provider: str,
     model: str,
     max_context_chars: Optional[int] = None,
+    user_prompt: Optional[str] = None,
 ) -> tuple[dict | None, str | None]:
     """취약점 0건일 때 LLM 보안 재검토를 실행합니다."""
     try:
         from agent.llm_agent import DalloAgent
-        agent = DalloAgent(provider=provider, model=model)
+        agent = DalloAgent(provider=provider, model=model, user_prompt=user_prompt)
         audit = agent.audit_code(
             code=code,
             filename=filename,
