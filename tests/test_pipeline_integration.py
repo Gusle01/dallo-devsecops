@@ -12,6 +12,7 @@ from unittest.mock import patch, MagicMock
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from shared.schemas import VulnerabilityReport
+from shared.schemas import PatchSuggestion, PatchStatus
 
 
 def _make_vulns():
@@ -136,6 +137,33 @@ class TestPipelineOrder:
         assert data["red_blue_summary"]["red_team"]["total_findings"] == 3
         assert "attack_paths" in data["red_blue_summary"]
         assert data["red_blue_summary"]["attack_paths"][0]["status"] == "OPEN"
+
+    def test_verified_patch_counts_as_blue_team_defense(self):
+        """검증 통과 패치는 빈 defense_outcome이어도 Blue Team 방어로 집계되어야 함"""
+        from shared.red_blue import build_red_blue_summary
+
+        vuln = _make_vulns()[0].to_dict()
+        patch = PatchSuggestion(
+            vulnerability_id=vuln["id"],
+            fixed_code="cursor.execute('SELECT * FROM users WHERE id = ?', (user_id,))",
+            explanation="Use parameter binding.",
+            status=PatchStatus.VERIFIED,
+            syntax_valid=True,
+            security_revalidation={
+                "passed": True,
+                "removed_count": 0,
+                "introduced_count": 0,
+                "new_vulnerabilities": [],
+            },
+        ).to_dict()
+
+        summary = build_red_blue_summary([vuln], [patch])
+
+        assert summary["blue_team"]["patches_generated"] == 1
+        assert summary["blue_team"]["patches_verified"] == 1
+        assert summary["comparison"]["fixed_count"] == 1
+        assert summary["comparison"]["risk_reduction_percent"] == 100.0
+        assert summary["attack_paths"][0]["status"] == "BLOCKED"
 
     def test_empty_vulns_no_error(self):
         """취약점 0건이어도 에러 없이 동작"""

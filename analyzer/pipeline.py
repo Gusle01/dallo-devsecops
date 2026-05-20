@@ -142,10 +142,32 @@ def execute_pipeline(
             )
             pipeline_result.llm_error = llm_error
             if llm_audit:
-                audit_vulns = _audit_findings_to_vulnerabilities(llm_audit, filename, lang)
+                audit_vulns = _audit_findings_to_vulnerabilities(llm_audit, filename, lang, source_code=code)
                 if audit_vulns:
                     vuln_reports.extend(audit_vulns)
                     _score_risk(audit_vulns)
+                    _progress("AI audit finding Blue Team 수정안 생성 중...")
+                    audit_opt_config = _build_optimization_config(
+                        cve_scope=cve_scope or [],
+                        cwe_scope=cwe_scope or [],
+                        rule_scope=rule_scope or [],
+                        max_llm_targets=max_llm_targets,
+                        max_context_chars=max_context_chars,
+                        batch_llm=batch_llm,
+                    )
+                    audit_targets, audit_optimization = _optimize_llm_targets(audit_vulns, audit_opt_config)
+                    optimization_summary["clean_audit"] = audit_optimization
+                    audit_patches, patch_error = _generate_patches(
+                        audit_targets,
+                        provider,
+                        model,
+                        multi_patch,
+                        audit_opt_config,
+                        user_prompt=user_prompt,
+                    )
+                    patches.extend(audit_patches)
+                    if patch_error:
+                        pipeline_result.llm_error = patch_error
 
         # Step 6: 코드 검증
         if patches:
@@ -322,7 +344,9 @@ def _generate_clean_audit(
         return None, str(e)
 
 
-def _audit_findings_to_vulnerabilities(audit: dict, filename: str, lang: str) -> list:
+def _audit_findings_to_vulnerabilities(
+    audit: dict, filename: str, lang: str, source_code: str = ""
+) -> list:
     """LLM clean audit findings를 대시보드/리포트용 취약점으로 승격합니다."""
     from shared.schemas import VulnerabilityReport
 
@@ -355,6 +379,7 @@ def _audit_findings_to_vulnerabilities(audit: dict, filename: str, lang: str) ->
             file_path=filename,
             line_number=line,
             code_snippet=str(finding.get("evidence") or ""),
+            function_code=source_code,
             cwe_id=cwe or None,
             language=lang,
             more_info="LLM clean audit: static/live scan missed finding",

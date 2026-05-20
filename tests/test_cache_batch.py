@@ -4,10 +4,11 @@
 
 import os
 import sys
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from shared.schemas import VulnerabilityReport
+from shared.schemas import VulnerabilityReport, PatchSuggestion, PatchStatus
 from agent.cache import LLMCache
 from agent.batch_processor import group_by_file, parse_batch_response
 from agent.response_parser import extract_json_from_response, extract_patches_from_json
@@ -140,6 +141,58 @@ class TestCleanAudit:
         assert audit["status"] == "suspicious"
         assert audit["findings"][0]["cwe_id"] == "CWE-918"
         assert audit["findings"][0]["line_number"] == 12
+
+    def test_clean_audit_findings_generate_blue_team_patches(self):
+        from analyzer import pipeline
+
+        source = "String url = request.getParameter(\"url\");"
+        audit = {
+            "status": "suspicious",
+            "summary": "Potential SSRF missed by static scan.",
+            "findings": [{
+                "title": "SSRF",
+                "cwe_id": "CWE-918",
+                "severity": "HIGH",
+                "line_number": 12,
+                "evidence": "url",
+                "reason": "user input controls URL",
+                "recommendation": "allowlist host",
+            }],
+        }
+        generated_targets = []
+
+        def fake_generate_patches(targets, *args, **kwargs):
+            generated_targets.extend(targets)
+            return [
+                PatchSuggestion(
+                    vulnerability_id=targets[0].id,
+                    fixed_code="String url = allowedUrl(request);",
+                    explanation="Allowlist the requested URL before use.",
+                    status=PatchStatus.GENERATED,
+                )
+            ], None
+
+        with (
+            patch.object(pipeline, "_run_static_analysis", return_value=[]),
+            patch.object(pipeline, "_generate_clean_audit", return_value=(audit, None)),
+            patch.object(pipeline, "_generate_patches", side_effect=fake_generate_patches),
+            patch.object(pipeline, "_validate_syntax", return_value=None),
+            patch.object(pipeline, "_validate_security", return_value=None),
+            patch.object(pipeline, "_persist_to_db", return_value=None),
+        ):
+            result = pipeline.execute_pipeline(
+                job_id="job_clean_audit",
+                code=source,
+                filename="Gateway.java",
+                use_llm=True,
+                llm_audit_when_clean=True,
+            )
+
+        assert generated_targets
+        assert generated_targets[0].id.startswith("llm_audit_")
+        assert generated_targets[0].function_code == source
+        assert len(result.result_data["patches"]) == 1
+        assert result.result_data["red_blue_summary"]["blue_team"]["patches_generated"] == 1
 
 
 class TestResponseParser:

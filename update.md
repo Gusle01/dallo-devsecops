@@ -2,6 +2,23 @@
 
 ## 2026-05-20
 
+### OPS Blue Team verified/risk reduction 집계 보정
+
+- 문제: LLM 패치가 `status=verified`이고 보안 재검증을 통과해도 `defense_outcome` 기본값이 빈 문자열이면 OPS Blue Team verified 집계가 0으로 표시될 수 있었음.
+- 원인: `shared.red_blue.enrich_patch()`가 `setdefault()`를 사용해 빈 문자열 필드를 보정하지 못했음.
+- 수정: Blue Team 필드가 비어 있으면 `validated_defense`/`drafted_defense`/`needs_review`를 명시적으로 채우도록 변경함.
+- 수정: 보안 재검증이 통과했지만 도구 비교상 `removed_count=0`인 경우에도 검증된 패치 1건으로 risk reduction에 반영하도록 보정함.
+- 테스트: verified patch가 Blue Team defense 및 risk reduction에 반영되는 회귀 테스트 추가.
+- 수정 파일: `shared/red_blue.py`, `tests/test_pipeline_integration.py`
+
+### LLM clean audit finding의 Blue Team 패치 생성 연결
+
+- 문제: `ai_audit_clean`에서 LLM이 정적 분석이 놓친 취약점을 찾아도, 해당 finding이 Red Team 항목으로만 표시되고 Blue Team action과 risk reduction은 0으로 남았음.
+- 원인: LLM clean audit 결과를 `VulnerabilityReport`로 승격한 뒤 다시 LLM 패치 생성 대상으로 넘기는 단계가 없었음.
+- 수정: audit finding을 정식 취약점으로 승격한 직후 Blue Team 수정안 생성 단계로 연결함.
+- 수정: audit finding에는 원본 코드 문맥을 `function_code`로 포함하고, LLM 최적화 단계에서 문맥 길이를 제한하도록 함.
+- 수정 파일: `analyzer/pipeline.py`
+
 ### LLM 보안 수정 프롬프트 강화
 
 - 문제: 기존 LLM 수정 프롬프트가 수정 코드와 근거 중심이라 Red Team 공격 분석, 프롬프트 인젝션 방어, 검증 체크리스트가 명확하지 않았음.

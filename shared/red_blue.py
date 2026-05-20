@@ -120,11 +120,16 @@ def enrich_patch(patch: dict, vuln: dict | None = None) -> dict:
     else:
         outcome = "not_generated"
 
-    item.setdefault("blue_team_phase", "remediation")
-    item.setdefault("defense_strategy", vuln.get("blue_team_strategy") or "Generate a secure refactoring and validate it with syntax and security checks.")
-    item.setdefault("defense_outcome", outcome)
-    item.setdefault("residual_risk", _residual_risk(outcome, sec))
-    item.setdefault("defense_plan", build_defense_plan(item, vuln, outcome))
+    if not item.get("blue_team_phase"):
+        item["blue_team_phase"] = "remediation"
+    if not item.get("defense_strategy"):
+        item["defense_strategy"] = vuln.get("blue_team_strategy") or "Generate a secure refactoring and validate it with syntax and security checks."
+    if not item.get("defense_outcome"):
+        item["defense_outcome"] = outcome
+    if not item.get("residual_risk"):
+        item["residual_risk"] = _residual_risk(item["defense_outcome"], sec)
+    if not item.get("defense_plan"):
+        item["defense_plan"] = build_defense_plan(item, vuln, item["defense_outcome"])
     return item
 
 
@@ -242,7 +247,10 @@ def build_defense_comparison(vulnerabilities: list[dict], patches: list[dict]) -
     for patch in patches:
         sec = patch.get("security_revalidation") or {}
         if sec:
-            removed += int(sec.get("removed_count") or 0)
+            removed_count = int(sec.get("removed_count") or 0)
+            if sec.get("passed") and removed_count == 0 and patch.get("fixed_code"):
+                removed_count = 1
+            removed += removed_count
             introduced += int(sec.get("introduced_count") or 0)
         elif patch.get("defense_outcome") == "validated_defense":
             removed += 1
