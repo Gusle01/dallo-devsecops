@@ -1,5 +1,19 @@
 # Dallo DevSecOps 변경 내역
 
+## 2026-05-25
+
+### 빠른 LLM patch 데모 옵션 및 진행 상태 개선
+
+- 문제: LLM patch 생성 후 보안 재검증까지 항상 이어지면 데모 중 응답 시간이 길어지고, 사용자는 LLM 호출/재검증 중 어디에서 시간이 걸리는지 알기 어려웠음.
+- 수정: `security_revalidation` 옵션을 API 요청과 대시보드 UI 토글로 분리함.
+- 효과: 빠른 데모 모드에서는 LLM patch만 생성하고 보안 재검증은 나중에 실행할 수 있음. 대시보드 기본값은 빠른 데모에 맞춰 재검증 OFF로 설정함.
+- 수정: LLM 실패 재시도 횟수를 `llm_max_retries`로 옵션화하고, 대시보드에서 0~3회로 조절할 수 있게 함. 기본값은 1회로 줄임.
+- 유지: `batch_llm`은 기본 ON 상태를 유지해 같은 파일 취약점 여러 개를 한 번에 요청하도록 함.
+- 수정: Gateway, Gemini, OpenRouter, OpenAI, Anthropic provider의 출력 토큰 기본값을 2048에서 4096으로 상향함. `LLM_MAX_OUTPUT_TOKENS` 환경변수로 조정 가능함.
+- 수정: 진행 상태에 `LLM 호출 중... (1/2 · B608)`, `AI 배치 수정안 생성 중...`, `보안 재검증 중... (n건)`, `보안 재검증 스킵됨 (빠른 데모 모드)`처럼 실제 병목 단계를 표시하도록 개선함.
+- 수정 파일: `dashboard/src/components/AnalyzeView.jsx`, `api/server.py`, `api/tasks.py`, `analyzer/pipeline.py`, `agent/llm_agent.py`, `agent/providers/*.py`
+- 검증: Python 주요 파일 `py_compile` 통과, 관련 pytest 8개 통과, `dashboard` `npm run build` 통과, 브라우저에서 `security_revalidation`/`batch_llm` 토글 렌더링 확인.
+
 ## 2026-05-20
 
 ### OPS Blue Team verified/risk reduction 집계 보정
