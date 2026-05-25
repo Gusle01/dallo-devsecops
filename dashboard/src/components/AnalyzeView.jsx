@@ -394,10 +394,12 @@ export default function AnalyzeView({ onComplete }) {
   const [model, setModel] = useState(LLM_MODELS.gateway[0].value)
   const [batchLlm, setBatchLlm] = useState(true)
   const [llmAuditWhenClean, setLlmAuditWhenClean] = useState(true)
+  const [securityRevalidation, setSecurityRevalidation] = useState(false)
   const [scopeText, setScopeText] = useState('')
   const [userPrompt, setUserPrompt] = useState('')
   const [maxTargets, setMaxTargets] = useState(10)
   const [maxContextChars, setMaxContextChars] = useState(2400)
+  const [llmMaxRetries, setLlmMaxRetries] = useState(1)
   const [status, setStatus] = useState(null) // null | polling | completed | failed
   const [step, setStep] = useState('')
   const [result, setResult] = useState(null)
@@ -601,6 +603,8 @@ export default function AnalyzeView({ onComplete }) {
         user_prompt: userPrompt.trim() || null,
         batch_llm: batchLlm,
         llm_audit_when_clean: llmAuditWhenClean,
+        security_revalidation: securityRevalidation,
+        llm_max_retries: Number(llmMaxRetries),
         max_llm_targets: Number(maxTargets) || null,
         max_context_chars: Number(maxContextChars) || null,
       }, scopes)
@@ -1144,6 +1148,15 @@ batch_llm
                   />
 ai_audit_clean
                 </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: securityRevalidation ? COLORS.amber : 'var(--ink-dim)', cursor: 'pointer', fontWeight: 600, fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                  <input
+                    type="checkbox"
+                    checked={securityRevalidation}
+                    onChange={e => setSecurityRevalidation(e.target.checked)}
+                    style={{ accentColor: COLORS.amber }}
+                  />
+security_revalidation
+                </label>
                 <select
                   value={provider}
                   onChange={e => selectProvider(e.target.value)}
@@ -1187,7 +1200,7 @@ ai_audit_clean
             <div style={{ width: '100%', display: 'grid', gap: 10 }}>
               <div style={{
                 display: 'grid',
-                gridTemplateColumns: 'minmax(220px, 1fr) 120px 150px',
+                gridTemplateColumns: 'minmax(220px, 1fr) 120px 150px 120px',
                 gap: 10,
                 alignItems: 'center',
               }}>
@@ -1232,6 +1245,24 @@ ai_audit_clean
                   value={maxContextChars}
                   onChange={e => setMaxContextChars(e.target.value)}
                   title="max context chars per finding"
+                  style={{
+                    height: 32,
+                    borderRadius: 0,
+                    border: '1px solid var(--rule-hot)',
+                    background: 'var(--paper-highlight)',
+                    color: 'var(--ink)',
+                    fontSize: 11,
+                    fontFamily: 'var(--font-mono)',
+                    padding: '0 10px',
+                  }}
+                />
+                <input
+                  type="number"
+                  min="0"
+                  max="3"
+                  value={llmMaxRetries}
+                  onChange={e => setLlmMaxRetries(e.target.value)}
+                  title="LLM retry count"
                   style={{
                     height: 32,
                     borderRadius: 0,

@@ -85,6 +85,8 @@ class AnalyzeRequest(BaseModel):
     max_context_chars: Optional[int] = None
     batch_llm: Optional[bool] = None
     llm_audit_when_clean: bool = False
+    security_revalidation: bool = True
+    llm_max_retries: int = Field(default=1, ge=0, le=3)
 
 
 class ApplyPatchRequest(BaseModel):
@@ -678,6 +680,8 @@ def _run_analysis(
     batch_llm: Optional[bool] = None,
     llm_audit_when_clean: bool = False,
     user_prompt: Optional[str] = None,
+    security_revalidation: bool = True,
+    llm_max_retries: int = 1,
 ):
     """백그라운드에서 분석 파이프라인 실행 (analyzer.pipeline에 위임)"""
     from analyzer.pipeline import execute_pipeline
@@ -700,6 +704,8 @@ def _run_analysis(
             batch_llm=batch_llm,
             llm_audit_when_clean=llm_audit_when_clean,
             user_prompt=user_prompt,
+            security_revalidation=security_revalidation,
+            llm_max_retries=llm_max_retries,
             on_progress=on_progress,
         )
 
@@ -753,6 +759,8 @@ def start_analysis(req: AnalyzeRequest, background_tasks: BackgroundTasks):
             max_context_chars=req.max_context_chars, batch_llm=req.batch_llm,
             llm_audit_when_clean=req.llm_audit_when_clean,
             user_prompt=req.user_prompt,
+            security_revalidation=req.security_revalidation,
+            llm_max_retries=req.llm_max_retries,
         )
         return {"job_id": task.id, "status": "queued", "message": "분석이 시작되었습니다. (Celery)", "backend": "celery"}
 
@@ -777,6 +785,7 @@ def start_analysis(req: AnalyzeRequest, background_tasks: BackgroundTasks):
         req.cve_scope, req.cwe_scope, req.rule_scope,
         req.max_llm_targets, req.max_context_chars, req.batch_llm,
         req.llm_audit_when_clean, req.user_prompt,
+        req.security_revalidation, req.llm_max_retries,
     )
 
     return {"job_id": job_id, "status": "queued", "message": "분석이 시작되었습니다.", "backend": "memory"}

@@ -22,6 +22,7 @@ class AnthropicProvider:
     def __init__(self, api_key: Optional[str] = None, model: str = "claude-sonnet-4-20250514", temperature: float = 0.2):
         self.model = model
         self.temperature = temperature
+        self.max_tokens = int(os.environ.get("LLM_MAX_OUTPUT_TOKENS", "4096"))
         self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
         self._client = None
 
@@ -35,7 +36,7 @@ class AnthropicProvider:
         self._ensure_client()
         response = self._client.messages.create(
             model=self.model,
-            max_tokens=2048,
+            max_tokens=self.max_tokens,
             temperature=self.temperature,
             system=system or SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],

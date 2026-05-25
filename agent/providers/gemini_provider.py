@@ -27,6 +27,7 @@ class GeminiProvider:
     ):
         self.model = model
         self.temperature = temperature
+        self.max_output_tokens = int(os.environ.get("LLM_MAX_OUTPUT_TOKENS", "4096"))
 
         # 멀티 API 키 지원 (로테이션)
         if api_keys:
@@ -76,7 +77,7 @@ class GeminiProvider:
             contents=full_prompt,
             config=types.GenerateContentConfig(
                 temperature=self.temperature,
-                max_output_tokens=2048,
+                max_output_tokens=self.max_output_tokens,
             ),
         )
         return response.text

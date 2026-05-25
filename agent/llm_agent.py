@@ -19,7 +19,7 @@ import re
 import sys
 import time
 import logging
-from typing import Optional
+from typing import Callable, Optional
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -49,9 +49,11 @@ class DalloAgent:
         user_prompt: Optional[str] = None,
         max_retries: int = 2,
         temperature: float = 0.2,
+        on_progress: Optional[Callable[[str], None]] = None,
     ):
-        self.max_retries = max_retries
+        self.max_retries = max(0, int(max_retries))
         self.user_prompt = (user_prompt or "").strip()
+        self._on_progress = on_progress
         self._masker = DataMasker()
         self._cache = LLMCache()
 
@@ -66,6 +68,11 @@ class DalloAgent:
         self.provider = (provider or "gemini").lower()
         self.model = self._provider.model
         self.temperature = self._provider.temperature
+
+    def _progress(self, message: str):
+        on_progress = getattr(self, "_on_progress", None)
+        if on_progress:
+            on_progress(message)
 
     def generate_patch(self, vuln: VulnerabilityReport) -> PatchSuggestion:
         """
@@ -97,10 +104,12 @@ class DalloAgent:
             vuln.function_code = original_function
             vuln.code_snippet = original_snippet
 
-        for attempt in range(self.max_retries + 1):
+        max_retries = getattr(self, "max_retries", 2)
+        for attempt in range(max_retries + 1):
             try:
                 cached = self._cache.get(code_to_mask, vuln.rule_id, prompt)
                 if cached:
+                    self._progress(f"LLM 캐시 사용 중... ({vuln.rule_id})")
                     return PatchSuggestion(
                         vulnerability_id=vuln.id,
                         fixed_code=cached.get("fixed_code", ""),
@@ -109,6 +118,9 @@ class DalloAgent:
                         status=PatchStatus.GENERATED,
                     )
 
+                self._progress(
+                    f"LLM 호출 중... ({attempt + 1}/{self.max_retries + 1} · {vuln.rule_id})"
+                )
                 response = self._provider.call(prompt, system=SYSTEM_PROMPT)
                 fixed_code, explanation = self._parse_response(response)
 
@@ -171,8 +183,12 @@ class DalloAgent:
         """
         prompt = self._build_multi_prompt(vuln)
 
-        for attempt in range(self.max_retries + 1):
+        max_retries = getattr(self, "max_retries", 2)
+        for attempt in range(max_retries + 1):
             try:
+                self._progress(
+                    f"LLM 다중 수정안 호출 중... ({attempt + 1}/{self.max_retries + 1} · {vuln.rule_id})"
+                )
                 response = self._provider.call(prompt, system=SYSTEM_PROMPT)
                 patches = self._parse_multi_response(response, vuln.id)
 
@@ -211,6 +227,7 @@ class DalloAgent:
         patches = []
         for i, vuln in enumerate(vulnerabilities):
             logger.info(f"[{i+1}/{len(vulnerabilities)}] {vuln.rule_id} ({vuln.severity}) 처리 중...")
+            self._progress(f"AI 수정안 생성 중... ({i + 1}/{len(vulnerabilities)} · {vuln.rule_id})")
             if multi:
                 result = self.generate_multi_patches(vuln)
                 patches.extend(result)
@@ -228,8 +245,12 @@ class DalloAgent:
         """같은 파일의 취약점을 묶어 LLM 호출 횟수를 줄입니다."""
         from agent.batch_processor import group_by_file, build_batch_prompt, parse_batch_response
 
+        batches = group_by_file(vulnerabilities, batch_size=batch_size)
         patches: list[PatchSuggestion] = []
-        for batch in group_by_file(vulnerabilities, batch_size=batch_size):
+        for batch_index, batch in enumerate(batches, start=1):
+            self._progress(
+                f"AI 배치 수정안 생성 중... ({batch_index}/{len(batches)} · {len(batch)}건)"
+            )
             if len(batch) == 1:
                 patches.append(self.generate_patch(batch[0]))
                 continue
@@ -241,6 +262,7 @@ class DalloAgent:
             cache_key_rule = "+".join(v.rule_id for v in batch)
             cached = self._cache.get(cache_key_content, cache_key_rule, prompt)
             if cached:
+                self._progress(f"LLM 배치 캐시 사용 중... ({batch_index}/{len(batches)})")
                 cached_patches = []
                 for item in cached.get("patches", []):
                     cached_patches.append(PatchSuggestion(
@@ -254,6 +276,7 @@ class DalloAgent:
                 continue
 
             try:
+                self._progress(f"LLM 배치 호출 중... ({batch_index}/{len(batches)} · {len(batch)}건)")
                 response = self._provider.call(prompt, system=SYSTEM_PROMPT)
                 parsed = parse_batch_response(response, batch)
                 parsed_ids = {p.vulnerability_id for p in parsed}
@@ -300,13 +323,32 @@ class DalloAgent:
         prompt = self._build_audit_prompt(trimmed, filename, language)
         cached = self._cache.get(trimmed, "LLM-AUDIT", prompt)
         if cached:
+            self._progress("LLM 클린 감사 캐시 사용 중...")
             return {**cached, "cached": True}
 
-        response = self._provider.call(prompt, system=SYSTEM_PROMPT)
-        parsed = extract_json_from_response(response)
-        audit = self._normalize_audit_response(parsed, response)
-        self._cache.set(trimmed, "LLM-AUDIT", prompt, audit)
-        return audit
+        max_retries = getattr(self, "max_retries", 2)
+        for attempt in range(max_retries + 1):
+            try:
+                self._progress(
+                    f"LLM 클린 감사 호출 중... ({attempt + 1}/{max_retries + 1})"
+                )
+                response = self._provider.call(prompt, system=SYSTEM_PROMPT)
+                parsed = extract_json_from_response(response)
+                audit = self._normalize_audit_response(parsed, response)
+                self._cache.set(trimmed, "LLM-AUDIT", prompt, audit)
+                return audit
+            except Exception as e:
+                err_str = str(e)
+                logger.warning(f"[시도 {attempt+1}/{max_retries+1}] 클린 감사 실패: {e}")
+                if "429" in err_str or "quota" in err_str.lower():
+                    if self._provider.rotate_key():
+                        logger.info("  Rate limit → 다른 API 키로 전환")
+                    else:
+                        wait = self._extract_retry_delay(err_str)
+                        logger.info(f"  Rate limit 감지 — {wait}초 대기 중...")
+                        time.sleep(wait)
+                if attempt == max_retries:
+                    raise
 
     def _detect_language(self, vuln: VulnerabilityReport) -> str:
         """파일 확장자에서 언어를 감지합니다."""

@@ -24,7 +24,9 @@ def run_analysis_task(self, code: str, filename: str, use_llm: bool = True,
                       max_context_chars: int | None = None,
                       batch_llm: bool | None = None,
                       llm_audit_when_clean: bool = False,
-                      user_prompt: str | None = None):
+                      user_prompt: str | None = None,
+                      security_revalidation: bool = True,
+                      llm_max_retries: int = 1):
     """
     Celery task: 분석 파이프라인 실행
 
@@ -51,6 +53,8 @@ def run_analysis_task(self, code: str, filename: str, use_llm: bool = True,
             batch_llm=batch_llm,
             llm_audit_when_clean=llm_audit_when_clean,
             user_prompt=user_prompt,
+            security_revalidation=security_revalidation,
+            llm_max_retries=llm_max_retries,
             on_progress=on_progress,
         )
 

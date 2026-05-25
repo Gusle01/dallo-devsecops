@@ -28,6 +28,7 @@ class OpenRouterProvider:
     ):
         self.model = model
         self.temperature = temperature
+        self.max_tokens = int(os.environ.get("LLM_MAX_OUTPUT_TOKENS", "4096"))
 
         if api_keys:
             self._api_keys = [k for k in api_keys if k.strip()]
@@ -68,6 +69,6 @@ class OpenRouterProvider:
                 {"role": "user", "content": prompt},
             ],
             temperature=self.temperature,
-            max_tokens=2048,
+            max_tokens=self.max_tokens,
         )
         return response.choices[0].message.content

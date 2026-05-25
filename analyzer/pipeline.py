@@ -48,6 +48,8 @@ def execute_pipeline(
     batch_llm: Optional[bool] = None,
     llm_audit_when_clean: bool = False,
     user_prompt: Optional[str] = None,
+    security_revalidation: bool = True,
+    llm_max_retries: int = 1,
     on_progress: Optional[Callable[[str], None]] = None,
 ) -> PipelineResult:
     """
@@ -126,7 +128,14 @@ def execute_pipeline(
                 f"batch={'on' if opt_config.batch_enabled and not multi_patch else 'off'})"
             )
             patches, llm_error = _generate_patches(
-                llm_targets, provider, model, multi_patch, opt_config, user_prompt=user_prompt
+                llm_targets,
+                provider,
+                model,
+                multi_patch,
+                opt_config,
+                user_prompt=user_prompt,
+                max_retries=llm_max_retries,
+                on_progress=_progress,
             )
             pipeline_result.llm_error = llm_error
         elif use_llm and llm_audit_when_clean:
@@ -139,6 +148,8 @@ def execute_pipeline(
                 model=model,
                 max_context_chars=max_context_chars,
                 user_prompt=user_prompt,
+                max_retries=llm_max_retries,
+                on_progress=_progress,
             )
             pipeline_result.llm_error = llm_error
             if llm_audit:
@@ -164,6 +175,8 @@ def execute_pipeline(
                         multi_patch,
                         audit_opt_config,
                         user_prompt=user_prompt,
+                        max_retries=llm_max_retries,
+                        on_progress=_progress,
                     )
                     patches.extend(audit_patches)
                     if patch_error:
@@ -175,9 +188,11 @@ def execute_pipeline(
             _validate_syntax(patches, lang)
 
         # Step 7: 보안 재검증
-        if patches:
-            _progress("보안 재검증 중...")
+        if patches and security_revalidation:
+            _progress(f"보안 재검증 중... ({len(patches)}건)")
             _validate_security(patches, vuln_reports, lang, filename)
+        elif patches:
+            _progress("보안 재검증 스킵됨 (빠른 데모 모드)")
 
         # 결과 조립
         _progress("결과 저장 중...")
@@ -302,11 +317,19 @@ def _generate_patches(
     multi_patch: bool,
     opt_config=None,
     user_prompt: Optional[str] = None,
+    max_retries: int = 1,
+    on_progress: Optional[Callable[[str], None]] = None,
 ) -> tuple[list, str | None]:
     """LLM 수정안을 생성합니다. (에러 시 빈 리스트 + 에러 메시지 반환)"""
     try:
         from agent.llm_agent import DalloAgent
-        agent = DalloAgent(provider=provider, model=model, user_prompt=user_prompt)
+        agent = DalloAgent(
+            provider=provider,
+            model=model,
+            user_prompt=user_prompt,
+            max_retries=max_retries,
+            on_progress=on_progress,
+        )
         patches = agent.generate_patches(
             llm_targets,
             multi=multi_patch,
@@ -327,11 +350,19 @@ def _generate_clean_audit(
     model: str,
     max_context_chars: Optional[int] = None,
     user_prompt: Optional[str] = None,
+    max_retries: int = 1,
+    on_progress: Optional[Callable[[str], None]] = None,
 ) -> tuple[dict | None, str | None]:
     """취약점 0건일 때 LLM 보안 재검토를 실행합니다."""
     try:
         from agent.llm_agent import DalloAgent
-        agent = DalloAgent(provider=provider, model=model, user_prompt=user_prompt)
+        agent = DalloAgent(
+            provider=provider,
+            model=model,
+            user_prompt=user_prompt,
+            max_retries=max_retries,
+            on_progress=on_progress,
+        )
         audit = agent.audit_code(
             code=code,
             filename=filename,
