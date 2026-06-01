@@ -272,6 +272,26 @@ def _detect_language(filename: str) -> str:
     return ext_map.get(ext, "python")
 
 
+def _enrich_quick_finding(finding: dict) -> dict:
+    """빠른 스캔 finding에 CVSS/위험등급/관련 CVE/수정 우선순위/공격 가능성을 부여합니다."""
+    from analyzer.risk_scorer import score_risk
+    cwe = finding.get("cwe", "")
+    scored = score_risk(
+        {"cwe_id": cwe, "severity": finding.get("severity", ""), "confidence": "HIGH"}
+    )
+    # 공격 가능성: severity/risk 기반 간단 추정
+    risk = scored["risk_level"]
+    exploitability = "high" if risk in ("critical", "high") else "medium" if risk == "medium" else "low"
+    finding["cwe_id"] = cwe
+    finding["cvss_score"] = scored["cvss_score"]
+    finding["risk_level"] = risk
+    finding["cve_ids"] = scored["cve_ids"]
+    finding["exploitability"] = exploitability
+    finding["fix_priority"] = scored["fix_priority"]
+    finding["priority_label"] = scored["priority_label"]
+    return finding
+
+
 def _quick_scan(code: str, language: str) -> list:
     """정규식 기반 빠른 취약점 스캔 (밀리초 단위 응답)"""
     findings = []
@@ -325,6 +345,8 @@ def _quick_scan(code: str, language: str) -> list:
                 continue
 
     findings.sort(key=lambda f: f["line"])
+    for finding in findings:
+        _enrich_quick_finding(finding)
     return findings
 
 
@@ -349,36 +371,67 @@ class ProjectScanRequest(BaseModel):
 
 @app.post("/api/quick-scan-project", dependencies=[Depends(verify_api_key)])
 def quick_scan_project(req: ProjectScanRequest):
-    """프로젝트 전체 빠른 스캔 — 여러 파일을 한 번에 분석"""
+    """프로젝트 전체 빠른 스캔 — 여러 파일을 한 번에 분석.
+
+    각 파일을 '실제 서비스 코드(service)'와 '외부 라이브러리/minified(external)'로
+    분류하여, 외부 라이브러리 취약점이 기본 결과를 가리지 않도록 분리합니다.
+    """
+    from shared.file_classifier import classify_file
+
     start = time.time()
     file_results = []
     total_findings = 0
-    summary = {"HIGH": 0, "MEDIUM": 0, "LOW": 0}
+    service_findings = 0
+    external_findings = 0
+    summary = {"HIGH": 0, "MEDIUM": 0, "LOW": 0}            # 서비스 코드 기준 요약
+    external_summary = {"HIGH": 0, "MEDIUM": 0, "LOW": 0}   # 외부 라이브러리 요약
 
     for f in req.files:
         fpath = f.get("path", "unknown")
         code = f.get("code", "")
         lang = _detect_language(fpath)
+        cls = classify_file(fpath, code)
+        is_external = cls["is_external"]
         findings = _quick_scan(code, lang)
         for finding in findings:
-            summary[finding["severity"]] = summary.get(finding["severity"], 0) + 1
+            sev = finding["severity"]
+            if is_external:
+                external_summary[sev] = external_summary.get(sev, 0) + 1
+            else:
+                summary[sev] = summary.get(sev, 0) + 1
         total_findings += len(findings)
+        if is_external:
+            external_findings += len(findings)
+        else:
+            service_findings += len(findings)
         file_results.append({
             "path": fpath,
             "language": lang,
             "findings": findings,
             "count": len(findings),
+            "category": cls["category"],
+            "is_external": is_external,
+            "external_reason": cls["reason"],
         })
 
-    # 취약점 많은 파일 순으로 정렬
-    file_results.sort(key=lambda x: x["count"], reverse=True)
+    # 서비스 코드 우선 + 취약점 많은 파일 순으로 정렬
+    file_results.sort(key=lambda x: (x["is_external"], -x["count"]))
     elapsed_ms = round((time.time() - start) * 1000, 1)
+
+    service_files = sum(1 for x in file_results if not x["is_external"])
+    external_files = len(file_results) - service_files
 
     return {
         "files": file_results,
         "total_files": len(file_results),
         "total_findings": total_findings,
         "summary": summary,
+        # 외부 라이브러리 분리 정보
+        "service_files": service_files,
+        "external_files": external_files,
+        "service_findings": service_findings,
+        "external_findings": external_findings,
+        "external_summary": external_summary,
         "elapsed_ms": elapsed_ms,
     }
 

@@ -8,6 +8,7 @@ critical/high/medium/low 4단계로 분류합니다.
 import json
 import os
 import logging
+from functools import lru_cache
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,14 @@ _CVSS_TO_RISK = [
     (0.0, "low"),
 ]
 
+# 수정 우선순위(fix priority) 라벨
+# P1: 즉시 수정, P2: 빠른 시일 내 수정, P3: 일정에 따라 수정
+_PRIORITY_LABELS = {
+    "P1": "즉시 수정",
+    "P2": "우선 수정",
+    "P3": "일정 내 수정",
+}
+
 
 def _load_external_cwe_map() -> dict:
     """shared/cwe_severity.json에서 추가 CWE 매핑을 로드합니다."""
@@ -62,16 +71,61 @@ def _load_external_cwe_map() -> dict:
     return {}
 
 
-def score_risk(vuln, external_cwe_map: dict = None) -> dict:
+@lru_cache(maxsize=1)
+def _load_cwe_cve_map() -> dict:
+    """shared/cwe_cve_map.json에서 CWE → 대표(참고) CVE 매핑을 로드합니다."""
+    path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "shared", "cwe_cve_map.json"
+    )
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return {k: v for k, v in data.items() if not k.startswith("_") and isinstance(v, list)}
+        except Exception:
+            return {}
+    return {}
+
+
+def compute_fix_priority(cvss: float, exploitability: str = "", confidence: str = "") -> dict:
+    """
+    CVSS 점수 + 공격 가능성 + 탐지 신뢰도로 수정 우선순위를 산정합니다.
+
+    Returns:
+        {"fix_priority": "P1|P2|P3", "priority_label": str}
+    """
+    exploit = (exploitability or "").lower()
+    conf = (confidence or "").upper()
+
+    # 기본은 CVSS 구간 기반
+    if cvss >= 9.0:
+        priority = "P1"
+    elif cvss >= 7.0:
+        priority = "P2"
+    else:
+        priority = "P3"
+
+    # 공격 가능성이 높으면 한 단계 상향, 낮으면(+낮은 신뢰도) 한 단계 하향
+    if exploit == "high" and priority == "P2":
+        priority = "P1"
+    elif exploit == "low" and conf == "LOW" and priority == "P1":
+        priority = "P2"
+
+    return {"fix_priority": priority, "priority_label": _PRIORITY_LABELS.get(priority, "")}
+
+
+def score_risk(vuln, external_cwe_map: dict = None, external_cve_map: dict = None) -> dict:
     """
     취약점의 위험도를 산정합니다.
 
     Args:
         vuln: VulnerabilityReport 객체 (또는 dict)
         external_cwe_map: 외부 CWE→CVSS 매핑 (없으면 내장 테이블 사용)
+        external_cve_map: CWE→참고 CVE 매핑 (없으면 파일에서 로드)
 
     Returns:
-        {"risk_level": "critical|high|medium|low", "cvss_score": float, "factors": [...]}
+        {"risk_level", "cvss_score", "cve_ids", "fix_priority", "priority_label", "factors"}
     """
     cwe_id = vuln.cwe_id if hasattr(vuln, "cwe_id") else vuln.get("cwe_id", "")
     severity = (vuln.severity if hasattr(vuln, "severity") else vuln.get("severity", "")).upper()
@@ -106,9 +160,29 @@ def score_risk(vuln, external_cwe_map: dict = None) -> dict:
             risk_level = level
             break
 
+    cvss = round(cvss, 1)
+
+    # 4. 관련(참고) CVE 매핑 — 의존성 취약점이면 자체 CVE 우선
+    existing_cve = vuln.cve_ids if hasattr(vuln, "cve_ids") else (vuln.get("cve_ids") if isinstance(vuln, dict) else None)
+    if existing_cve:
+        cve_ids = list(existing_cve)
+    else:
+        cve_map = external_cve_map if external_cve_map is not None else _load_cwe_cve_map()
+        cve_ids = list(cve_map.get(cwe_id, [])) if cwe_id else []
+    if cve_ids:
+        factors.append(f"관련 참고 CVE {len(cve_ids)}건")
+
+    # 5. 수정 우선순위 — exploitability는 red_blue enrich 단계에서 채워지므로
+    #    여기서는 confidence 기반으로 산정하고, 이후 단계에서 보정 가능.
+    exploitability = vuln.exploitability if hasattr(vuln, "exploitability") else (vuln.get("exploitability", "") if isinstance(vuln, dict) else "")
+    priority = compute_fix_priority(cvss, exploitability, confidence)
+
     return {
         "risk_level": risk_level,
-        "cvss_score": round(cvss, 1),
+        "cvss_score": cvss,
+        "cve_ids": cve_ids,
+        "fix_priority": priority["fix_priority"],
+        "priority_label": priority["priority_label"],
         "factors": factors,
     }
 
@@ -117,19 +191,22 @@ def score_vulnerabilities(vulnerabilities: list) -> list:
     """
     취약점 목록 전체에 위험도를 산정합니다.
 
-    각 취약점 객체에 risk_level, cvss_score 속성을 추가하고 반환합니다.
+    각 취약점 객체에 risk_level, cvss_score, cve_ids, fix_priority 속성을 추가하고 반환합니다.
     """
     external_map = _load_external_cwe_map()
+    cve_map = _load_cwe_cve_map()
 
     for vuln in vulnerabilities:
-        result = score_risk(vuln, external_map)
-        if hasattr(vuln, "risk_level"):
-            vuln.risk_level = result["risk_level"]
-        if hasattr(vuln, "cvss_score"):
-            vuln.cvss_score = result["cvss_score"]
+        result = score_risk(vuln, external_map, cve_map)
+        for attr in ("risk_level", "cvss_score", "cve_ids", "fix_priority", "priority_label"):
+            if hasattr(vuln, attr):
+                setattr(vuln, attr, result[attr])
         # dict 타입 지원
         if isinstance(vuln, dict):
             vuln["risk_level"] = result["risk_level"]
             vuln["cvss_score"] = result["cvss_score"]
+            vuln["cve_ids"] = result["cve_ids"]
+            vuln["fix_priority"] = result["fix_priority"]
+            vuln["priority_label"] = result["priority_label"]
 
     return vulnerabilities

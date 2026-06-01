@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { COLORS, SEVERITY } from '../colors'
+import VulnMeta, { PriorityBadge } from './VulnMeta'
 
 const SeverityCell = ({ severity }) => {
   const sevClass = (severity || 'unknown').toLowerCase()
@@ -8,6 +9,13 @@ const SeverityCell = ({ severity }) => {
       {severity}
     </span>
   )
+}
+
+function cvssColor(score) {
+  if (score >= 9) return 'var(--blood-deep)'
+  if (score >= 7) return 'var(--blood)'
+  if (score >= 4) return 'var(--amber)'
+  return 'var(--cyan)'
 }
 
 const filterOptions = [
@@ -96,11 +104,14 @@ export default function VulnTable({ vulns }) {
             <tr>
               <th className="th-header" style={{ width: 36 }}>NN</th>
               <th className="th-header">SEV</th>
+              <th className="th-header" style={{ textAlign: 'right' }}>CVSS</th>
+              <th className="th-header">PRI</th>
               <th className="th-header">RULE</th>
               <th className="th-header">TITLE</th>
               <th className="th-header">FILE</th>
               <th className="th-header" style={{ textAlign: 'right' }}>LN</th>
               <th className="th-header">CWE</th>
+              <th className="th-header">CVE</th>
             </tr>
           </thead>
           <tbody>
@@ -117,6 +128,18 @@ export default function VulnTable({ vulns }) {
                   </td>
                   <td className="td-cell">
                     <SeverityCell severity={v.severity} />
+                  </td>
+                  <td className="td-cell td-cell--mono" style={{
+                    textAlign: 'right',
+                    color: cvssColor(Number(v.cvss_score || 0)),
+                    fontWeight: 700,
+                  }}>
+                    {v.cvss_score ? Number(v.cvss_score).toFixed(1) : '--'}
+                  </td>
+                  <td className="td-cell">
+                    {v.fix_priority
+                      ? <PriorityBadge priority={v.fix_priority} label={v.priority_label} />
+                      : <span style={{ color: 'var(--ink-faint)' }}>--</span>}
                   </td>
                   <td className="td-cell td-cell--mono" style={{ color: 'var(--cyan)' }}>
                     {v.rule_id}
@@ -148,11 +171,26 @@ export default function VulnTable({ vulns }) {
                       </a>
                     ) : <span style={{ color: 'var(--ink-faint)' }}>--</span>}
                   </td>
+                  <td className="td-cell" style={{ fontSize: 10, color: 'var(--amber)' }}>
+                    {(v.cve_ids && v.cve_ids.length > 0)
+                      ? <a
+                          href={`https://nvd.nist.gov/vuln/detail/${v.cve_ids[0]}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={e => e.stopPropagation()}
+                          style={{ color: 'var(--amber)' }}
+                          title={v.cve_ids.join(', ')}
+                        >
+                          {v.cve_ids[0]}{v.cve_ids.length > 1 ? ` +${v.cve_ids.length - 1}` : ''}
+                        </a>
+                      : <span style={{ color: 'var(--ink-faint)' }}>--</span>}
+                  </td>
                 </tr>
                 {expanded === i && (
                   <tr>
-                    <td colSpan={7} style={{ padding: 0, background: 'var(--bg-deep)', borderBottom: '1px solid var(--phosphor-dim)' }}>
+                    <td colSpan={10} style={{ padding: 0, background: 'var(--bg-deep)', borderBottom: '1px solid var(--phosphor-dim)' }}>
                       <div className="expand-in" style={{ padding: '18px 24px 22px' }}>
+                        <VulnMeta vuln={v} />
                         <div style={{
                           fontFamily: 'var(--font-mono)',
                           fontSize: 10,

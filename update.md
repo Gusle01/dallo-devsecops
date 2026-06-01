@@ -1,5 +1,38 @@
 # Dallo DevSecOps 변경 내역
 
+## 2026-06-01
+
+### 1. 코드 비교 UI 개선 (GitHub PR diff 스타일)
+
+- 문제: 수정 전/후 코드가 별도 코드 블록으로 위아래 나열되어, 어떤 라인이 바뀌었는지 한눈에 비교하기 어려웠음.
+- 수정: 외부 라이브러리 없이 LCS 기반 라인 diff 알고리즘(`dashboard/src/utils/diff.js`)과 재사용 컴포넌트 `DiffView`를 추가함. 원본|수정본을 GitHub PR처럼 좌우 분할(기본)로 보여주고 변경 라인을 색으로 강조함(추가=녹색 `+`, 삭제=빨강 `-`). `split`/`unified` 토글과 `+N/-N` 통계를 제공함.
+- 수정: 블루팀 수정(`PatchView`)과 레드스캔 결과(`AnalyzeView`)의 기존 분리형 코드 블록을 `DiffView`로 교체함.
+- 수정: 두 화면 상단에 `$ jump →` 인덱스를 추가해, 취약점/패치 항목을 클릭하면 해당 코드·diff 영역으로 부드럽게 스크롤 이동(`scrollIntoView`)하도록 연결함.
+- 수정 파일: `dashboard/src/utils/diff.js`(신규), `dashboard/src/components/DiffView.jsx`(신규), `dashboard/src/components/PatchView.jsx`, `dashboard/src/components/AnalyzeView.jsx`
+
+### 2. 외부 라이브러리 처리 (서비스 코드 / 외부 라이브러리 분리)
+
+- 문제: `node_modules`, minified JS, jquery/bootstrap 같은 외부 라이브러리 파일의 취약점이 실제 서비스 코드 결과에 섞여 노이즈가 컸음.
+- 수정: 파일 분류 모듈(`shared/file_classifier.py`)을 추가함. vendor 디렉토리(`node_modules`/`vendor`/`dist` 등), 알려진 라이브러리 파일명(jquery/bootstrap/react 등), `*.min.js` 번들, minified 내용(긴 라인) 휴리스틱으로 `service`/`external`을 판별함.
+- 수정: `quick-scan-project` API가 파일별 `category`/`is_external`/`external_reason`를 태깅하고, 서비스/외부 취약점 수를 분리 집계하도록 함.
+- 수정: 프로젝트 뷰에 `서비스 코드만`(기본) / `외부 라이브러리` / `전체` 필터를 추가함. 파일 트리에 `EXT` 배지, 숨겨진 외부 취약점 건수 안내를 표시하고, 자동 선택도 서비스 파일을 우선하도록 보정함.
+- 수정 파일: `shared/file_classifier.py`(신규), `api/server.py`, `dashboard/src/components/AnalyzeView.jsx`
+
+### 3. 보안 기준 강화 (CWE + CVE + CVSS)
+
+- 문제: 기존 분석이 CWE 중심이라 취약점별 CVE/CVSS/수정 우선순위 정보가 부족했음.
+- 수정: CWE별 대표(참고) CVE 매핑(`shared/cwe_cve_map.json`)을 추가하고, 위험도 산정(`analyzer/risk_scorer.py`)에 `cve_ids`와 수정 우선순위 `fix_priority`(P1/P2/P3, CVSS+공격가능성+신뢰도 기반) 산정을 추가함(디스크 로드 캐싱 포함).
+- 수정: 공통 데이터 계약(`shared/schemas.py`)에 `cve_ids`/`fix_priority`/`priority_label` 필드를 추가하고, Red/Blue 보강 로직(`shared/red_blue.py`)이 모든 읽기 경로에서 일관되게 채우도록 함.
+- 수정: 취약점마다 CWE · CVE · CVSS · 위험등급 · 공격 가능성 · 수정 우선순위를 한 패널로 보여주는 `VulnMeta` 컴포넌트를 추가함(CWE→MITRE, CVE→NVD 링크). 취약점 테이블에 `CVSS`/`PRI`/`CVE` 컬럼을 추가함. 빠른 스캔(라이브/프로젝트) 결과에도 동일 정보를 부여함.
+- 참고: 소스코드 취약점의 CVE는 동일 약점 클래스의 대표 예시라 UI에 "(참고)"로 명시하며, 의존성 스캔(pip-audit/npm)의 실제 CVE와 구분함.
+- 수정 파일: `shared/cwe_cve_map.json`(신규), `analyzer/risk_scorer.py`, `shared/schemas.py`, `shared/red_blue.py`, `api/server.py`, `dashboard/src/components/VulnMeta.jsx`(신규), `dashboard/src/components/VulnTable.jsx`, `dashboard/src/components/AnalyzeView.jsx`
+
+### 검증
+
+- `py -m pytest tests/` 전체 106개 통과
+- `dashboard` `npm run build` 통과 (664 modules)
+- 백엔드 동작 확인: quick-scan 필드 부여, 프로젝트 파일 service/external 분류, CVE·수정 우선순위 산정 정상
+
 ## 2026-05-25
 
 ### 빠른 LLM patch 데모 옵션 및 진행 상태 개선

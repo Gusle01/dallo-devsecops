@@ -71,6 +71,9 @@ class VulnerabilityReport:
     more_info: str = ""                # 참고 URL
     risk_level: str = ""               # critical/high/medium/low (위험도 산정 결과)
     cvss_score: float = 0.0            # CVSS 스코어 (0~10)
+    cve_ids: list = field(default_factory=list)  # 관련/참고 CVE ID 목록
+    fix_priority: str = ""             # 수정 우선순위 (P1/P2/P3)
+    priority_label: str = ""           # 수정 우선순위 한글 라벨
     duplicate_group_id: str = ""       # 중복 그룹 ID (중복 제거 후 할당)
     red_team_phase: str = "attack_surface_mapping"
     attack_vector: str = ""            # Red Team 관점 공격 벡터

@@ -101,7 +101,33 @@ def enrich_vulnerability(vuln: dict) -> dict:
     item.setdefault("blue_team_strategy", tpl["defense"])
     item.setdefault("exploitability", _exploitability(risk, item.get("confidence", "")))
     item.setdefault("attack_plan", build_attack_plan(item, tpl))
+    _enrich_cve_and_priority(item, cwe_id)
     return item
+
+
+def _enrich_cve_and_priority(item: dict, cwe_id: str) -> None:
+    """관련 CVE와 수정 우선순위를 보강합니다 (없을 때만).
+
+    exploitability가 채워진 뒤 호출되므로 우선순위 산정에 반영됩니다.
+    """
+    try:
+        from analyzer.risk_scorer import compute_fix_priority, _load_cwe_cve_map
+    except Exception:
+        return
+
+    if not item.get("cve_ids") and cwe_id:
+        item["cve_ids"] = list(_load_cwe_cve_map().get(cwe_id, []))
+    item.setdefault("cve_ids", item.get("cve_ids") or [])
+
+    if not item.get("fix_priority"):
+        cvss = float(item.get("cvss_score") or 0.0)
+        priority = compute_fix_priority(
+            cvss,
+            item.get("exploitability", ""),
+            item.get("confidence", ""),
+        )
+        item["fix_priority"] = priority["fix_priority"]
+        item.setdefault("priority_label", priority["priority_label"])
 
 
 def enrich_patch(patch: dict, vuln: dict | None = None) -> dict:

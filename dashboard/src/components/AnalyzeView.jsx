@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { COLORS, SEVERITY, alpha, rgba } from '../colors'
 import { apiFetch } from '../api/client'
+import DiffView from './DiffView'
+import VulnMeta, { PriorityBadge } from './VulnMeta'
 
 const API = window.location.origin
 
@@ -416,6 +418,8 @@ export default function AnalyzeView({ onComplete }) {
   const [projectResults, setProjectResults] = useState(null) // API 응답
   const [selectedFile, setSelectedFile] = useState(null)     // 선택된 파일 path
   const [projectScanning, setProjectScanning] = useState(false)
+  // 파일 필터: 'service'(서비스 코드만) | 'external'(외부 라이브러리만) | 'all'(전체)
+  const [fileFilter, setFileFilter] = useState('service')
 
   // 취약점 클릭 시 해당 줄로 스크롤 + 하이라이트
   const jumpToLine = useCallback((lineNum) => {
@@ -539,10 +543,13 @@ export default function AnalyzeView({ onComplete }) {
       })
       const data = await resp.json()
       setProjectResults(data)
-      // 취약점이 있는 첫 파일 자동 선택
-      const firstWithIssue = data.files.find(f => f.count > 0)
+      // 서비스 코드 + 취약점 있는 파일 우선 자동 선택
+      const serviceFiles = data.files.filter(f => !f.is_external)
+      const firstWithIssue = serviceFiles.find(f => f.count > 0)
+        || data.files.find(f => f.count > 0)
+        || serviceFiles[0]
+        || data.files[0]
       if (firstWithIssue) setSelectedFile(firstWithIssue.path)
-      else if (data.files.length > 0) setSelectedFile(data.files[0].path)
     } catch {
       // ignore
     }
@@ -559,6 +566,11 @@ export default function AnalyzeView({ onComplete }) {
   // 프로젝트 모드에서 선택된 파일의 코드와 findings
   const selectedFileData = projectFiles.find(f => f.path === selectedFile)
   const selectedFileResult = projectResults?.files?.find(f => f.path === selectedFile)
+
+  // 외부 라이브러리 필터 적용된 파일 목록
+  const visibleProjectFiles = (projectResults?.files || []).filter(f =>
+    fileFilter === 'all' ? true : fileFilter === 'external' ? f.is_external : !f.is_external
+  )
 
   const [sampleMenu, setSampleMenu] = useState(false)
 
@@ -838,6 +850,47 @@ export default function AnalyzeView({ onComplete }) {
                   </button>
                 </div>
 
+                {/* 외부 라이브러리 필터 */}
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap',
+                  padding: '8px 12px', border: '1px solid var(--rule-hot)', background: 'var(--bg-deep)',
+                }}>
+                  <span style={{
+                    fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-dim)',
+                    textTransform: 'uppercase', letterSpacing: '0.12em', marginRight: 6,
+                  }}>
+                    $ filter --scope=
+                  </span>
+                  {[
+                    { id: 'service',  label: '서비스 코드만', count: projectResults.service_files },
+                    { id: 'external', label: '외부 라이브러리', count: projectResults.external_files },
+                    { id: 'all',      label: '전체', count: projectResults.total_files },
+                  ].map(opt => (
+                    <button
+                      key={opt.id}
+                      onClick={() => setFileFilter(opt.id)}
+                      style={{
+                        border: `1px solid ${fileFilter === opt.id ? 'var(--phosphor)' : 'var(--rule-hot)'}`,
+                        background: fileFilter === opt.id ? 'var(--phosphor)' : 'transparent',
+                        color: fileFilter === opt.id ? 'var(--bg)' : 'var(--ink-dim)',
+                        padding: '3px 12px', cursor: 'pointer',
+                        fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700,
+                        textTransform: 'uppercase', letterSpacing: '0.08em',
+                      }}
+                    >
+                      {opt.label} {opt.count != null ? `(${opt.count})` : ''}
+                    </button>
+                  ))}
+                  {projectResults.external_findings > 0 && fileFilter === 'service' && (
+                    <span style={{
+                      marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: 10,
+                      color: 'var(--ink-faint)',
+                    }}>
+                      외부 라이브러리 취약점 {projectResults.external_findings}건 숨김
+                    </span>
+                  )}
+                </div>
+
                 {/* 파일 트리 + 코드 뷰 */}
                 <div className="project-layout" style={{ display: 'flex', gap: 12 }}>
                   {/* 파일 트리 사이드바 */}
@@ -846,7 +899,15 @@ export default function AnalyzeView({ onComplete }) {
                     borderRadius: 0, border: '1px solid var(--rule)',
                     background: 'var(--paper-deep)',
                   }}>
-                    {projectResults.files.map((f) => {
+                    {visibleProjectFiles.length === 0 && (
+                      <div style={{
+                        padding: '16px 12px', fontFamily: 'var(--font-mono)', fontSize: 10,
+                        color: 'var(--ink-faint)', textAlign: 'center',
+                      }}>
+                        # 해당 필터에 맞는 파일 없음
+                      </div>
+                    )}
+                    {visibleProjectFiles.map((f) => {
                       const isSelected = selectedFile === f.path
                       const hasIssues = f.count > 0
                       const highCount = f.findings.filter(x => x.severity === 'HIGH').length
@@ -874,8 +935,20 @@ export default function AnalyzeView({ onComplete }) {
                               color: hasIssues ? COLORS.textPrimary : 'var(--text-tertiary)',
                               fontFamily: 'JetBrains Mono, monospace',
                               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                              display: 'flex', alignItems: 'center', gap: 6,
                             }}>
-                              {f.path.split('/').pop()}
+                              {f.is_external && (
+                                <span title={f.external_reason} style={{
+                                  fontSize: 8, fontWeight: 800, color: 'var(--amber)',
+                                  border: '1px solid var(--amber)', padding: '0 3px',
+                                  letterSpacing: '0.08em', flexShrink: 0,
+                                }}>
+                                  EXT
+                                </span>
+                              )}
+                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {f.path.split('/').pop()}
+                              </span>
                             </div>
                             <div style={{
                               fontSize: 10, color: 'var(--text-muted)',
@@ -1421,6 +1494,13 @@ function ResultView({ result }) {
     patchMap[vid].push(p)
   })
 
+  // 취약점 카드 ref — 점프 인덱스에서 스크롤 이동
+  const vulnRefs = useRef({})
+  const jumpToVuln = (i) => {
+    const el = vulnRefs.current[i]
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
   const SEVERITY_COLOR = SEVERITY
 
   return (
@@ -1593,6 +1673,39 @@ function ResultView({ result }) {
         </div>
       )}
 
+      {/* 점프 인덱스 — 취약점 클릭 시 해당 코드/diff 영역으로 이동 */}
+      {vulns.length > 0 && (
+        <div style={{
+          display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 20,
+          padding: '10px 14px', border: '1px solid var(--rule-hot)', background: 'var(--bg-deep)',
+        }}>
+          <span style={{
+            fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-dim)',
+            textTransform: 'uppercase', letterSpacing: '0.14em', marginRight: 8, alignSelf: 'center',
+          }}>
+            $ jump →
+          </span>
+          {vulns.map((v, i) => {
+            const sc = SEVERITY_COLOR[v.severity] || COLORS.muted
+            return (
+              <button
+                key={i}
+                onClick={() => jumpToVuln(i)}
+                title={v.title}
+                style={{
+                  border: `1px solid ${sc}`, background: 'transparent', color: sc,
+                  padding: '2px 8px', cursor: 'pointer',
+                  fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700,
+                }}
+              >
+                {String(i + 1).padStart(2, '0')} {v.rule_id}
+                {v.fix_priority ? ` · ${v.fix_priority}` : ''}
+              </button>
+            )
+          })}
+        </div>
+      )}
+
       {/* 취약점 + 패치 — editorial entries */}
       {vulns.map((v, i) => {
         const vPatches = patchMap[v.id] || []
@@ -1602,12 +1715,14 @@ function ResultView({ result }) {
         return (
           <article
             key={i}
+            ref={el => { vulnRefs.current[i] = el }}
             className="fade-in"
             style={{
               padding: '28px 0 32px',
               marginBottom: 8,
               borderTop: '1px solid var(--rule)',
               position: 'relative',
+              scrollMarginTop: 16,
               animationDelay: `${i * 0.05}s`,
               animationFillMode: 'backwards',
             }}
@@ -1664,9 +1779,15 @@ function ResultView({ result }) {
                       <span>{v.cwe_id}</span>
                     </>
                   )}
+                  {v.fix_priority && (
+                    <PriorityBadge priority={v.fix_priority} label={v.priority_label} />
+                  )}
                 </div>
               </div>
             </div>
+
+            {/* 보안 메타데이터: CWE / CVE / CVSS / 위험등급 / 공격가능성 / 수정우선순위 */}
+            <VulnMeta vuln={v} />
 
             <div style={{
               fontSize: 12,
@@ -1806,7 +1927,10 @@ function ResultView({ result }) {
                       {' '}· residual_risk: <span style={{ color: 'var(--amber)' }}>{patch.residual_risk || 'unknown'}</span>
                     </div>
                   )}
-                  <pre className="code-block code-block--success">{patch.fixed_code}</pre>
+                  <DiffView
+                    original={v.function_code || v.code_snippet || ''}
+                    fixed={patch.fixed_code}
+                  />
 
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 12, flexWrap: 'wrap' }}>
                     <DownloadCodeButton code={patch.fixed_code} filename={v.file_path || 'fixed_code.py'} fixType={patch.fix_type} />

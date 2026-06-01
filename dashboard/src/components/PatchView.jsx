@@ -1,5 +1,6 @@
-import React, { useState } from 'react'
+import React, { useState, useRef, useCallback } from 'react'
 import { STATUS, COLORS, alpha, rgba } from '../colors'
+import DiffView from './DiffView'
 
 const STATUS_CONFIG = {
   verified:  { color: STATUS.verified,  label: '검증 완료', icon: '✓' },
@@ -15,6 +16,22 @@ function getStatus(patch) {
 
 export default function PatchView({ patches }) {
   const [selected, setSelected] = useState(null)
+  const cardRefs = useRef({})
+
+  // 항목 클릭 시 펼치고 해당 카드(diff 영역)로 스크롤 이동
+  const selectPatch = useCallback((index) => {
+    setSelected(prev => {
+      const next = prev === index ? null : index
+      if (next !== null) {
+        // 펼쳐진 뒤 스크롤 (다음 페인트 이후)
+        requestAnimationFrame(() => {
+          const el = cardRefs.current[index]
+          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        })
+      }
+      return next
+    })
+  }, [])
 
   if (patches.length === 0) {
     return (
@@ -51,6 +68,39 @@ export default function PatchView({ patches }) {
         </p>
       </div>
 
+      {/* 점프 인덱스 — 항목 클릭 시 해당 diff 영역으로 이동 */}
+      <div style={{
+        display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 18,
+        padding: '10px 14px', border: '1px solid var(--rule-hot)', background: 'var(--bg-deep)',
+      }}>
+        <span style={{
+          fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-dim)',
+          textTransform: 'uppercase', letterSpacing: '0.14em', marginRight: 8, alignSelf: 'center',
+        }}>
+          $ jump →
+        </span>
+        {patches.map((p, i) => {
+          const status = getStatus(p)
+          const cfg = STATUS_CONFIG[status] || STATUS_CONFIG.pending
+          return (
+            <button
+              key={i}
+              onClick={() => selectPatch(i)}
+              title={p.title || p.vulnerability_id}
+              style={{
+                border: `1px solid ${selected === i ? cfg.color : 'var(--rule-hot)'}`,
+                background: selected === i ? cfg.color : 'transparent',
+                color: selected === i ? 'var(--bg)' : 'var(--ink-dim)',
+                padding: '2px 8px', cursor: 'pointer',
+                fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700,
+              }}
+            >
+              {String(i + 1).padStart(2, '0')} {(p.rule_id || p.vulnerability_id || '').slice(0, 16)}
+            </button>
+          )
+        })}
+      </div>
+
       <div style={{ display: 'flex', flexDirection: 'column' }}>
         {patches.map((p, i) => {
           const status = getStatus(p)
@@ -61,17 +111,19 @@ export default function PatchView({ patches }) {
           return (
             <article
               key={i}
+              ref={el => { cardRefs.current[i] = el }}
               className="fade-in"
               style={{
                 borderTop: '1px solid var(--rule)',
                 borderBottom: i === patches.length - 1 ? '1px solid var(--rule)' : 'none',
                 animationDelay: `${i * 0.04}s`,
                 animationFillMode: 'backwards',
+                scrollMarginTop: 16,
               }}
             >
               {/* Header */}
               <div
-                onClick={() => setSelected(isOpen ? null : i)}
+                onClick={() => selectPatch(i)}
                 style={{
                   padding: '20px 0',
                   cursor: 'pointer',
@@ -214,23 +266,10 @@ export default function PatchView({ patches }) {
                         )}
                       </div>
 
-                      {p.original_code && (
-                        <>
-                          <div className="section-label" style={{ color: 'var(--blood)', marginTop: 18 }}>
-                            ── original.code <span style={{ color: 'var(--ink-faint)' }}>// vulnerable</span>
-                          </div>
-                          <pre className="code-block code-block--danger">
-                            {p.original_code}
-                          </pre>
-                        </>
-                      )}
-
-                      <div className="section-label" style={{ color: 'var(--phosphor)', marginTop: 18 }}>
-                        ── patched.code <span style={{ color: 'var(--ink-faint)' }}>// llm draft</span>
+                      <div className="section-label" style={{ color: 'var(--phosphor)', marginTop: 18, marginBottom: 8 }}>
+                        ── before / after <span style={{ color: 'var(--ink-faint)' }}>// red → blue</span>
                       </div>
-                      <pre className="code-block code-block--success">
-                        {p.fixed_code}
-                      </pre>
+                      <DiffView original={p.original_code} fixed={p.fixed_code} />
 
                       {p.security_revalidation && (
                         <div style={{
