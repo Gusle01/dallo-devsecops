@@ -904,6 +904,20 @@ def get_analysis_status(job_id: str):
     return {"error": "Job not found"}
 
 
+def _normalize_repo(value: str) -> str:
+    """사용자가 입력한 레포 식별자를 'owner/repo'로 정규화한다.
+    전체 URL(https://github.com/owner/repo[.git]), 앞뒤 슬래시/공백을 허용한다."""
+    import re
+    r = (value or "").strip()
+    r = re.sub(r"^https?://(www\.)?github\.com/", "", r, flags=re.IGNORECASE)
+    r = re.sub(r"\.git$", "", r, flags=re.IGNORECASE)
+    r = r.strip("/")
+    parts = [p for p in r.split("/") if p]
+    if len(parts) >= 2:
+        return f"{parts[0]}/{parts[1]}"
+    return r
+
+
 @app.post("/api/apply-patch", dependencies=[Depends(verify_api_key)])
 def apply_patch(req: ApplyPatchRequest):
     """
@@ -949,10 +963,10 @@ def apply_patch(req: ApplyPatchRequest):
     # GitHub 브랜치 + PR 생성 시도
     # 사용자가 입력한 레포/토큰 우선, 없으면 서버 환경변수 폴백
     token = req.github_token or os.environ.get("GITHUB_TOKEN", "")
-    repo = req.github_repo or os.environ.get("GITHUB_REPOSITORY", "")
+    repo = _normalize_repo(req.github_repo or os.environ.get("GITHUB_REPOSITORY", ""))
 
     if not token or not repo:
-        result["message"] = "로컬 저장 완료 (GITHUB_TOKEN 미설정 — PR 생성 스킵)"
+        result["message"] = "로컬 저장 완료 (GitHub 레포/토큰 미입력 — PR 생성 스킵)"
         return result
 
     headers = {
@@ -962,10 +976,23 @@ def apply_patch(req: ApplyPatchRequest):
     api_base = f"https://api.github.com/repos/{repo}"
 
     try:
-        # 1. main 브랜치의 최신 SHA 가져오기
-        ref_resp = http_requests.get(f"{api_base}/git/ref/heads/main", headers=headers, timeout=10)
+        # 1. 레포 정보 조회 → 기본 브랜치 자동 감지 (main/master 등)
+        repo_resp = http_requests.get(api_base, headers=headers, timeout=10)
+        if repo_resp.status_code == 404:
+            result["message"] = f"레포를 찾을 수 없습니다: '{repo}' — owner/repo 형식인지, 토큰에 해당 레포 접근 권한(repo 스코프)이 있는지 확인하세요"
+            return result
+        if repo_resp.status_code == 401:
+            result["message"] = "GitHub 토큰 인증 실패 (401) — 토큰이 유효한지 확인하세요"
+            return result
+        if repo_resp.status_code != 200:
+            result["message"] = f"레포 조회 실패: {repo_resp.status_code} {repo_resp.text[:160]}"
+            return result
+        default_branch = repo_resp.json().get("default_branch", "main")
+
+        # 2. 기본 브랜치의 최신 SHA 가져오기
+        ref_resp = http_requests.get(f"{api_base}/git/ref/heads/{default_branch}", headers=headers, timeout=10)
         if ref_resp.status_code != 200:
-            result["message"] = f"main 브랜치 조회 실패: {ref_resp.status_code}"
+            result["message"] = f"'{default_branch}' 브랜치 조회 실패: {ref_resp.status_code}"
             return result
         main_sha = ref_resp.json()["object"]["sha"]
 
@@ -978,7 +1005,15 @@ def apply_patch(req: ApplyPatchRequest):
             timeout=10,
         )
         if create_ref.status_code not in (200, 201):
-            result["message"] = f"브랜치 생성 실패: {create_ref.status_code}"
+            detail = create_ref.text[:200]
+            if create_ref.status_code in (403, 404):
+                result["message"] = (
+                    f"브랜치 생성 권한이 없습니다 ({create_ref.status_code}). 레포 조회는 됐지만 쓰기가 거부됐어요 — "
+                    f"토큰에 'repo'(classic PAT) 또는 'Contents: Read and write'(fine-grained) 권한이 있고, "
+                    f"해당 레포에 push 권한이 있는지 확인하세요. (토큰이 폐기/만료됐을 수도 있습니다) 응답: {detail}"
+                )
+            else:
+                result["message"] = f"브랜치 생성 실패: {create_ref.status_code} {detail}"
             return result
 
         # 3. 파일이 기존에 있는지 확인 (있으면 SHA 필요)
@@ -1030,7 +1065,7 @@ def apply_patch(req: ApplyPatchRequest):
             json={
                 "title": f"🤖 fix: {req.vulnerability_id} 보안 취약점 수정",
                 "head": branch_name,
-                "base": "main",
+                "base": default_branch,
                 "body": pr_body,
             },
             timeout=10,

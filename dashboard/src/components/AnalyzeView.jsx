@@ -1989,22 +1989,27 @@ function ResultView({ result, source = '' }) {
 }
 
 
+// 'owner/repo' 또는 전체 URL(https://github.com/owner/repo[.git])을 owner/repo로 정규화
+function normalizeRepo(value) {
+  let r = (value || '').trim()
+  r = r.replace(/^https?:\/\/(www\.)?github\.com\//i, '')
+  r = r.replace(/\.git$/i, '').replace(/^\/+|\/+$/g, '')
+  const parts = r.split('/').filter(Boolean)
+  return parts.length >= 2 ? `${parts[0]}/${parts[1]}` : r
+}
+
 function ApplyButton({ patch, vuln }) {
   const [state, setState] = useState(null) // null | github_form | loading | applied | error
   const [diff, setDiff] = useState('')
   const [prUrl, setPrUrl] = useState(null)
   const [branch, setBranch] = useState('')
   const [message, setMessage] = useState('')
-  const [ghRepo, setGhRepo] = useState(() => localStorage.getItem('dallo_gh_repo') || '')
-  const [ghToken, setGhToken] = useState(() => localStorage.getItem('dallo_gh_token') || '')
+  const [ghRepo, setGhRepo] = useState('')
+  const [ghToken, setGhToken] = useState('')
 
   const showGithubForm = () => {
-    // 이미 저장된 정보가 있으면 바로 적용
-    if (ghRepo && ghToken) {
-      applyFix()
-    } else {
-      setState('github_form')
-    }
+    // 매번 폼을 열어 레포/토큰을 확인·변경한다 (이전 값으로 자동 고정하지 않음)
+    setState('github_form')
   }
 
   const applyFix = async () => {
@@ -2019,7 +2024,7 @@ function ApplyButton({ patch, vuln }) {
           filename: vuln.file_path || 'fixed_code.py',
           vulnerability_id: vuln.id,
           fix_type: patch.fix_type,
-          github_repo: ghRepo,
+          github_repo: normalizeRepo(ghRepo),
           github_token: ghToken,
         }),
       })
@@ -2104,7 +2109,7 @@ function ApplyButton({ patch, vuln }) {
         <input
           value={ghRepo}
           onChange={e => setGhRepo(e.target.value)}
-          placeholder="owner/repo (e.g. JUNSU0202/my-project)"
+          placeholder="owner/repo 또는 https://github.com/owner/repo"
           style={{
             width: '100%',
             padding: '11px 14px',
@@ -2136,11 +2141,7 @@ function ApplyButton({ patch, vuln }) {
         />
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <button
-            onClick={() => {
-              localStorage.setItem('dallo_gh_repo', ghRepo)
-              localStorage.setItem('dallo_gh_token', ghToken)
-              applyFix()
-            }}
+            onClick={applyFix}
             disabled={!ghRepo || !ghToken}
             style={{
               padding: '10px 20px',
@@ -2176,34 +2177,9 @@ function ApplyButton({ patch, vuln }) {
           >
             ^c abort
           </button>
-          {localStorage.getItem('dallo_gh_token') && (
-            <button
-              onClick={() => {
-                localStorage.removeItem('dallo_gh_repo')
-                localStorage.removeItem('dallo_gh_token')
-                setGhRepo('')
-                setGhToken('')
-              }}
-              style={{
-                padding: '10px 14px',
-                borderRadius: 0,
-                border: `1px solid ${COLORS.blood}`,
-                background: 'transparent',
-                color: COLORS.blood,
-                fontSize: 10,
-                cursor: 'pointer',
-                fontWeight: 700,
-                fontFamily: 'var(--font-mono)',
-                textTransform: 'uppercase',
-                letterSpacing: '0.12em',
-              }}
-            >
-              rm -rf creds
-            </button>
-          )}
         </div>
         <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 10 }}>
-# credentials are kept in localStorage, never sent to dallo backend
+          토큰은 저장하지 않습니다 — 이번 요청에만 사용되어 로컬 dallo 서버가 GitHub를 호출한 뒤 폐기됩니다.
         </div>
       </div>
     )

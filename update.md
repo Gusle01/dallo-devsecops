@@ -1,5 +1,47 @@
 # Dallo DevSecOps 변경 내역
 
+## 2026-06-02 (4차 패치 — 대시보드 라이트 테마 전환 · 한글화 · 리포트 최신화 · git push 수정)
+
+### 1. 대시보드를 다크 터미널 → 라이트 테마로 전환 + 한글화
+
+- 요구: 화면 전체 분위기를 밝게, "사람이 만든" 느낌으로. 기존 화면 구성은 최대한 유지.
+- 수정(테마): 색 토큰을 단일 소스(`index.css` `:root`, `colors.js`)에서 라이트 팔레트로 재정의 → `var(--…)`/`COLORS.*`를 쓰는 대부분 컴포넌트가 자동 전환. 웜 오프화이트 배경, 흰 카드, 부드러운 그림자, 약간의 둥근 모서리. 악센트는 기존 인광 그린 정체성을 이은 성숙한 에메랄드(`#0a7d56`).
+- 수정(폰트): 본문/UI는 Pretendard(한글+라틴), 로고·큰 숫자는 Fraunces(세리프), 코드는 JetBrains Mono.
+- 수정(장식 완화): 스캔라인·비네팅·네온 글로우·깜빡이는 커서, `$`/`[ ]`/`:wq`/`# ` 등 과한 터미널 장식 제거.
+- 수정(한글화): 메뉴 탭(레드팀 분석/공격·방어/대시보드/취약점/블루팀 수정/의존성/리포트/이력), 기능 토글(실시간 스캔·LLM 패치·다중 패치·일괄 처리·AI 정밀점검·보안 재검증), 페이지 제목·표 헤더·상태·푸터 등 사용자 노출 라벨을 한글화. 하드코딩된 다크 색(코드 에디터 `#15130f` 등)도 라이트로 교체.
+- 수정 파일: `dashboard/src/index.css`, `dashboard/src/colors.js`, `dashboard/src/App.jsx`, `dashboard/src/components/*`(AnalyzeView, VulnTable, PatchView, RedBlueView, ReportView, DependencyView, LoginView, StatsCards, FileChart, TypeChart, DiffView 등)
+
+### 2. 이력(로그) 탭 그래프 2개 → 1개로 통합
+
+- 요구: 막대·선 두 차트를 하나로 합치고, X축/막대/점이 무엇인지 알려주기.
+- 수정: recharts `ComposedChart`로 통합 — 막대(심각도별 탐지: 높음/중간/낮음, 왼쪽 Y축 "탐지 건수")와 선·점(패치 초안/검증, 오른쪽 Y축 "패치 수")을 한 차트에. X축 라벨 "세션 (오래된 → 최신)", 범례로 각 계열의 의미를 표기. 폰트·툴팁도 라이트 테마로.
+- 수정 파일: `dashboard/src/components/HistoryView.jsx`
+
+### 3. 리포트 라이트 테마 전환 + 구성 최신화 (diff · CVE)
+
+- 요구: "리포트 생성 / open_report"로 열리는 PDF/HTML이 예전 다크 테마로 남아 있음. 지금 테마로 바꾸고 diff·CVE 등 최신화.
+- 수정: 리포트 탭(클라이언트 생성 `ReportView`)과 레드팀 분석의 open_report(백엔드 생성 `report_generator.py`)를 모두 대시보드와 동일한 라이트 테마로 다시 작성. 탐지 표에 **CVSS·CWE·CVE 컬럼**(CWE→MITRE, CVE→NVD 링크, CVSS 점수 색상), 블루팀 수정마다 **수정 전/후 diff**(빨강 삭제·초록 추가, `+N −N`)와 보안 재검증 결과 추가. HTML/Markdown 모두 반영.
+- 수정 파일: `dashboard/src/components/ReportView.jsx`, `reports/report_generator.py`
+
+### 4. git push "브랜치 조회/생성 404" 수정
+
+- 문제: apply-patch의 GitHub PR 생성에서 `MAIN 브랜치 조회 실패: 404` (이후 `브랜치 생성 실패: 404`).
+- 원인: 입력칸은 `owner/repo` 형식인데 전체 URL(`https://github.com/owner/repo`)을 넣으면 `api.github.com/repos/https://github.com/...`로 호출되어 404. 또 기본 브랜치를 `main`으로 하드코딩해 다른 기본 브랜치(master 등)에서 실패. 브랜치 생성 단계의 404는 토큰 쓰기 권한 부족(공개 레포는 읽기만 됨)이 원인.
+- 수정: 백엔드에 `_normalize_repo()`를 추가해 전체 URL/`.git`/슬래시를 `owner/repo`로 정규화(프론트도 전송 전 정규화). 레포 정보(`GET /repos/{repo}`)로 **기본 브랜치를 자동 감지**해 ref 조회·PR base에 사용. 404/401·쓰기 권한 부족에 GitHub 응답 본문 + 한글 안내(토큰 `repo`/Contents:write 권한 확인)를 표시.
+- 수정 파일: `api/server.py`, `dashboard/src/components/AnalyzeView.jsx`
+
+### 5. git push 자격 고정/저장 문제 수정
+
+- 문제: 한 번 입력한 레포가 계속 고정되어 그 레포로만 push됨. 또 PAT를 브라우저 localStorage에 저장.
+- 수정: `ApplyButton`이 repo/token을 localStorage에 저장·자동적용하던 로직을 제거하고, 매번 폼을 열어 확인·변경하도록 변경. 토큰은 더 이상 저장하지 않고 이번 요청에만 사용 후 폐기(보안 개선).
+- 수정 파일: `dashboard/src/components/AnalyzeView.jsx`
+
+### 검증 (4차)
+
+- `dashboard` `npm run build` 통과(665 모듈). 헤드리스 Chrome로 로그인·8개 탭·이력 차트·리포트를 API 목킹 렌더해 라이트 테마/한글/diff/CVE 확인.
+- Python `py_compile`(`api/server.py`, `reports/report_generator.py`) 통과. 리포트 생성기를 목 데이터로 렌더해 CVE·before/after diff·라이트 테마 확인.
+- `_normalize_repo` 단위 확인: `https://github.com/Gusle01/WebGoat`(및 `.git`/`/tree/main`/공백 변형) → `Gusle01/WebGoat`.
+
 ## 2026-06-01 (3차 패치 — Defense diff 잘림 / Findings CVSS 표시 수정)
 
 ### 1. Defense 탭에서 diff가 잘려 보이는 문제 수정
