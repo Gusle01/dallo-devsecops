@@ -1,5 +1,28 @@
 # Dallo DevSecOps 변경 내역
 
+## 2026-06-01 (3차 패치 — Defense diff 잘림 / Findings CVSS 표시 수정)
+
+### 1. Defense 탭에서 diff가 잘려 보이는 문제 수정
+
+- 문제: 블루팀 수정안을 펼쳤을 때, 설명이 길면 하단의 diff가 잘려서 일부만 보였음.
+- 원인: 펼침 애니메이션 클래스 `.expand-in`이 종료 상태로 `max-height: 800px` + `overflow: hidden`을 유지함. 상세(설명+메타+diff) 높이가 800px를 넘으면 그 아래(주로 diff)가 클리핑됨. 설명이 짧을 때는 800px 안에 들어와 정상으로 보여 재현이 까다로웠음.
+- 수정: `max-height`/`overflow:hidden` 클램프를 제거하고 페이드+슬라이드(`opacity`+`translateY`)로만 노출하도록 `@keyframes expandIn`과 `.expand-in`을 변경함 → 상세 내용이 어떤 높이든 전부 표시됨. Defense(`PatchView`)와 Findings 펼침 행(`VulnTable`)에 공통 적용.
+- 보강: diff 셀에 `overflow-wrap: anywhere`를 추가해, 긴 토큰(연결 문자열/시크릿 등)이 Safari 등에서 가로로 넘쳐 잘리는 경우도 방지함.
+- 수정 파일: `dashboard/src/index.css`, `dashboard/src/components/DiffView.jsx`
+
+### 2. Findings 탭에서 CVSS 점수가 "--"로 표시되는 문제 수정
+
+- 문제: 취약점 목록의 CVSS 컬럼이 "--"로 비어 보였음(CVE/우선순위는 정상 표시).
+- 원인: `cvss_score`/`risk_level`은 파이프라인의 risk_scorer가 계산하지만 DB에 저장되지 않음(컬럼 없음). DB에서 로드된 취약점은 읽기 시점 보강(`enrich_vulnerability`)에서 cve_ids·fix_priority만 채우고 cvss/risk_level은 채우지 않아 비어 있었음.
+- 수정: `shared/red_blue.py`의 `_enrich_cve_and_priority`가 cvss_score/risk_level이 비어 있으면 `score_risk()`(CWE→CVSS 매핑 + severity 폴백)로 재계산해 채우도록 함. 이로써 stats·findings·defense가 동일한 위험도 값을 일관되게 보여줌.
+- 수정 파일: `shared/red_blue.py`
+
+### 검증 (3차)
+
+- `dashboard` `npm run build` 통과
+- 브라우저 실측: Defense 상세 높이 1935px(기존 800px 클램프 초과)에서도 diff 잘림 없이 전부 표시, `.expand-in`이 `max-height:none`/`overflow:visible`, 콘솔 에러 0
+- API: `/api/vulnerabilities`의 `HEUR-HARDCODED-SECRET`이 `cvss_score=9.1 / risk_level=critical / fix_priority=P1`로 정상 표시
+
 ## 2026-06-01 (2차 패치 — diff/Defense 안정화 및 성능 개선)
 
 ### 1. 스캔 후 화면이 검게 변하는 버그 수정 (React 크래시)

@@ -111,10 +111,28 @@ def _enrich_cve_and_priority(item: dict, cwe_id: str) -> None:
     exploitability가 채워진 뒤 호출되므로 우선순위 산정에 반영됩니다.
     """
     try:
-        from analyzer.risk_scorer import compute_fix_priority, _load_cwe_cve_map
+        from analyzer.risk_scorer import compute_fix_priority, _load_cwe_cve_map, score_risk, _load_external_cwe_map
     except Exception:
         return
 
+    # cvss_score/risk_level이 비어 있으면(예: DB에서 로드된 취약점) score_risk로
+    # 재계산해 채운다. cve_ids/fix_priority도 함께 보강된다.
+    if not item.get("cvss_score") or not item.get("risk_level"):
+        try:
+            scored = score_risk(item, external_cwe_map=_load_external_cwe_map())
+            if not item.get("cvss_score"):
+                item["cvss_score"] = scored.get("cvss_score")
+            if not item.get("risk_level"):
+                item["risk_level"] = scored.get("risk_level")
+            if not item.get("cve_ids"):
+                item["cve_ids"] = scored.get("cve_ids", [])
+            if not item.get("fix_priority"):
+                item["fix_priority"] = scored.get("fix_priority")
+                item.setdefault("priority_label", scored.get("priority_label"))
+        except Exception:
+            pass
+
+    # 폴백: score_risk가 실패해도 cve/priority는 최소한 보강한다.
     if not item.get("cve_ids") and cwe_id:
         item["cve_ids"] = list(_load_cwe_cve_map().get(cwe_id, []))
     item.setdefault("cve_ids", item.get("cve_ids") or [])

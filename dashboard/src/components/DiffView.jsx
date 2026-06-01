@@ -26,6 +26,9 @@ const CELL = {
   fontSize: 11.5,
   lineHeight: 1.7,
   whiteSpace: 'pre-wrap',
+  // 긴 토큰(연결 문자열/시크릿 등)도 칸 안에서 강제로 줄바꿈 — Safari 등에서
+  // word-break:break-word가 불안정해 가로 오버플로우가 나는 것을 방지한다.
+  overflowWrap: 'anywhere',
   wordBreak: 'break-word',
   padding: '0 10px',
   width: '100%',

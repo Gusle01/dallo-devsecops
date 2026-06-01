@@ -753,8 +753,8 @@ input::placeholder, textarea::placeholder {
   to   { opacity: 1; transform: translateX(0); }
 }
 @keyframes expandIn {
-  from { opacity: 0; max-height: 0; }
-  to   { opacity: 1; max-height: 800px; }
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 @keyframes shimmer {
   0%   { background-position: -200% 0; }
@@ -794,7 +794,8 @@ input::placeholder, textarea::placeholder {
 .fade-in         { animation: fadeIn 0.35s steps(8) backwards; }
 .tab-enter-right { animation: fadeIn 0.3s steps(6) backwards; }
 .tab-enter-left  { animation: fadeIn 0.3s steps(6) backwards; }
-.expand-in       { animation: expandIn 0.3s ease-out forwards; overflow: hidden; }
+/* max-height/overflow 클램프 제거: 상세 내용(특히 diff)이 800px를 넘어도 잘리지 않도록 페이드+슬라이드로만 노출한다 */
+.expand-in       { animation: expandIn 0.28s ease-out backwards; }
 .shimmer {
   background: linear-gradient(90deg, transparent 0%, var(--phosphor-bg) 50%, transparent 100%);
   background-size: 200% 100%;
