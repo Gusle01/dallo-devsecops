@@ -579,7 +579,8 @@ def get_vulnerabilities(
     file_path: Optional[str] = Query(None, description="파일 경로 필터"),
 ):
     """취약점 목록 조회 (필터 지원)"""
-    full = _with_red_blue(load_full_result())
+    # JSON 파일 우선, 없으면 DB 최신 분석으로 폴백 (stats와 동일 소스 유지)
+    full = _with_red_blue(load_full_result() or db_service.get_latest_analysis())
 
     if full and full.get("vulnerabilities"):
         vulns = full["vulnerabilities"]
@@ -656,10 +657,12 @@ def get_vulnerabilities_by_type():
 @app.get("/api/patches", dependencies=[Depends(verify_api_key)])
 def get_patches():
     """LLM 수정 제안 목록"""
-    full = _with_red_blue(load_full_result())
+    # JSON 파일 우선, 없으면 DB 최신 분석으로 폴백 (stats와 동일 소스 유지)
+    full = _with_red_blue(load_full_result() or db_service.get_latest_analysis()) or {}
     patches = full.get("patches", [])
 
     # 취약점 정보와 매칭
+    source_full = full.get("source_code", "")
     vulns = {v.get("id"): v for v in full.get("vulnerabilities", [])}
     enriched = []
     for p in patches:
@@ -672,6 +675,8 @@ def get_patches():
             "severity": vuln.get("severity", ""),
             "title": vuln.get("title", ""),
             "original_code": vuln.get("function_code") or vuln.get("code_snippet", ""),
+            # 전체 원본 (있으면 Defense 탭에서 redscan처럼 전체 파일 diff 합성)
+            "source_full": source_full,
         })
 
     return {"count": len(enriched), "patches": enriched}

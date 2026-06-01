@@ -99,6 +99,9 @@ class AnalysisRun(Base):
     patches_generated = Column(Integer, default=0)
     patches_verified = Column(Integer, default=0)
 
+    # 분석 대상 전체 원본 소스 (암호화 저장 — Defense 탭 전체 파일 diff용)
+    source_code = Column(Text, default="")
+
     # 시간
     started_at = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)
@@ -198,7 +201,25 @@ class Patch(Base):
 def init_db():
     """테이블 생성 (없으면 새로 만듦)"""
     Base.metadata.create_all(bind=engine)
+    _migrate_add_columns()
     print("[+] DB 테이블 초기화 완료")
+
+
+def _migrate_add_columns():
+    """기존 DB에 누락된 컬럼을 보강한다 (create_all은 컬럼 추가를 안 함)."""
+    from sqlalchemy import inspect, text
+    expected = {
+        "analysis_runs": [("source_code", "TEXT DEFAULT ''")],
+    }
+    inspector = inspect(engine)
+    with engine.begin() as conn:
+        for table, cols in expected.items():
+            if not inspector.has_table(table):
+                continue
+            existing = {c["name"] for c in inspector.get_columns(table)}
+            for name, ddl in cols:
+                if name not in existing:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
 
 
 def drop_db():

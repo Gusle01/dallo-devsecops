@@ -203,6 +203,8 @@ def execute_pipeline(
             result_data["llm_audit"] = llm_audit
         if pipeline_result.llm_error:
             result_data["llm_error"] = pipeline_result.llm_error
+        # 전체 원본 소스 (Defense 탭에서 redscan처럼 전체 파일 diff 합성용)
+        result_data["source_code"] = code
 
         # DB 저장
         db_error = _persist_to_db(result_data)

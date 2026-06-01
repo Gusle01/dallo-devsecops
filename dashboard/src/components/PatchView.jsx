@@ -1,6 +1,8 @@
 import React, { useState, useRef, useCallback } from 'react'
 import { STATUS, COLORS, alpha, rgba } from '../colors'
 import DiffView from './DiffView'
+import Markdown from './Markdown'
+import { buildFixedFile } from '../utils/diff'
 
 const STATUS_CONFIG = {
   verified:  { color: STATUS.verified,  label: '검증 완료', icon: '✓' },
@@ -191,21 +193,21 @@ export default function PatchView({ patches }) {
                   borderTop: '1px dotted var(--rule)',
                 }}>
                   {p.explanation && (
-                    <div style={{
-                      margin: '18px 0',
-                      padding: '14px 18px',
-                      background: 'var(--paper-deep)',
-                      borderRadius: 0,
-                      fontSize: 14,
-                      lineHeight: 1.7,
-                      color: 'var(--ink-soft)',
-                      borderLeft: `2px solid ${cfg.color}`,
-                      fontStyle: 'italic',
-                      fontFamily: 'var(--font-body)',
-                      maxWidth: '64ch',
-                    }}>
-                      {p.explanation}
-                    </div>
+                    <Markdown
+                      text={p.explanation}
+                      style={{
+                        margin: '18px 0',
+                        padding: '14px 18px',
+                        background: 'var(--paper-deep)',
+                        borderRadius: 0,
+                        fontSize: 13.5,
+                        lineHeight: 1.7,
+                        color: 'var(--ink-soft)',
+                        borderLeft: `2px solid ${cfg.color}`,
+                        fontFamily: 'var(--font-body)',
+                        maxWidth: '82ch',
+                      }}
+                    />
                   )}
 
                   {(p.defense_strategy || p.defense_outcome || p.residual_risk) && (
@@ -269,7 +271,14 @@ export default function PatchView({ patches }) {
                       <div className="section-label" style={{ color: 'var(--phosphor)', marginTop: 18, marginBottom: 8 }}>
                         ── before / after <span style={{ color: 'var(--ink-faint)' }}>// red → blue</span>
                       </div>
-                      <DiffView original={p.original_code} fixed={p.fixed_code} />
+                      {(() => {
+                        // 전체 원본이 있으면 redscan처럼 전체 파일 좌우 diff로 합성,
+                        // 없으면(구버전 데이터) 스니펫 단위로 폴백한다.
+                        const full = p.source_full || ''
+                        const original = full || p.original_code || ''
+                        const fixed = full ? buildFixedFile(full, p.fixed_code, p.line_number) : p.fixed_code
+                        return <DiffView original={original} fixed={fixed} />
+                      })()}
 
                       {p.security_revalidation && (
                         <div style={{

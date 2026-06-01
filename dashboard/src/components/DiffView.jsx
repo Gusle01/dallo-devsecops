@@ -1,5 +1,5 @@
-import React, { useState } from 'react'
-import { diffSplit, diffLines, diffStats } from '../utils/diff'
+import React, { useState, useMemo } from 'react'
+import { diffLines, splitFromLines } from '../utils/diff'
 
 // GitHub PR diff 스타일 코드 비교 컴포넌트.
 // 원본(original) vs 수정(fixed) 코드를 좌우 분할/통합 보기로 표시하고
@@ -88,8 +88,7 @@ function ModeToggle({ mode, setMode, stats }) {
   )
 }
 
-function SplitView({ original, fixed }) {
-  const rows = diffSplit(original, fixed)
+function SplitView({ rows }) {
   const sideCell = (side) => {
     if (!side) {
       return (
@@ -130,8 +129,7 @@ function SplitView({ original, fixed }) {
   )
 }
 
-function UnifiedView({ original, fixed }) {
-  const rows = diffLines(original, fixed)
+function UnifiedView({ rows }) {
   return (
     <div style={{ overflowX: 'auto', border: '1px solid var(--rule-hot)', background: 'var(--bg-deep)' }}>
       <table style={{ borderCollapse: 'collapse', width: '100%' }}>
@@ -154,7 +152,19 @@ function UnifiedView({ original, fixed }) {
 
 export default function DiffView({ original, fixed, defaultMode = 'split' }) {
   const [mode, setMode] = useState(defaultMode)
-  const stats = diffStats(original || '', fixed || '')
+
+  // diff는 한 번만 계산하고(LCS 1회) split/통계는 그 결과에서 파생한다.
+  // original/fixed 문자열이 그대로면 부모 리렌더에도 재계산하지 않는다.
+  const lineRows = useMemo(() => diffLines(original || '', fixed || ''), [original, fixed])
+  const splitRows = useMemo(() => splitFromLines(lineRows), [lineRows])
+  const stats = useMemo(() => {
+    let added = 0, removed = 0
+    for (const r of lineRows) {
+      if (r.type === 'add') added++
+      else if (r.type === 'del') removed++
+    }
+    return { added, removed }
+  }, [lineRows])
 
   // 원본이 없으면 diff 불가 → 수정 코드만 표시
   if (!original || !original.trim()) {
@@ -175,8 +185,8 @@ export default function DiffView({ original, fixed, defaultMode = 'split' }) {
     <div>
       <ModeToggle mode={mode} setMode={setMode} stats={stats} />
       {mode === 'split'
-        ? <SplitView original={original} fixed={fixed} />
-        : <UnifiedView original={original} fixed={fixed} />}
+        ? <SplitView rows={splitRows} />
+        : <UnifiedView rows={lineRows} />}
     </div>
   )
 }

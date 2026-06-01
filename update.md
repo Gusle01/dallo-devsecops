@@ -1,5 +1,53 @@
 # Dallo DevSecOps 변경 내역
 
+## 2026-06-01 (2차 패치 — diff/Defense 안정화 및 성능 개선)
+
+### 1. 스캔 후 화면이 검게 변하는 버그 수정 (React 크래시)
+
+- 문제: 스캔 완료 직후 결과를 그리는 순간 화면 전체가 검게 변함(렌더 도중 런타임 예외 → React 트리 언마운트).
+- 원인: 결과 렌더 컴포넌트 `ResultView`는 `result`만 prop으로 받는데, diff 합성 코드에서 부모(`AnalyzeView`)의 상태인 `analyzedSource`/`code`를 직접 참조해 `ReferenceError`가 발생함. 빌드는 통과하지만 런타임에서만 터지는 종류.
+- 수정: 전체 원본 소스를 `ResultView`에 `source` prop으로 전달하도록 변경하고, diff 합성부가 그 prop을 사용하도록 정리함.
+- 수정 파일: `dashboard/src/components/AnalyzeView.jsx`
+
+### 2. diff를 "전체 파일 좌우 비교"로 (redscan)
+
+- 문제: diff가 취약 함수/스니펫 단위라, 전체 코드 맥락에서 어디가 바뀌었는지 보기 어려웠음.
+- 수정: 전체 원본에 LLM 패치(보통 함수 단위 + import 추가)를 합성해 "전체 수정 파일"을 만드는 `buildFixedFile()`를 추가함. `line_number`로 취약 함수 블록을 찾아 교체하고, 새로 추가된 top-level import는 상단으로 끌어올리며, 클래스 메서드 들여쓰기에 맞춰 재정렬함(블록 미탐색 시 해당 라인만 폴백 교체).
+- 수정: redscan 결과의 `DiffView`에 좌측=전체 원본, 우측=합성한 전체 수정 파일을 전달해 GitHub split(정렬 빈줄 포함)로 표시함.
+- 수정 파일: `dashboard/src/utils/diff.js`, `dashboard/src/components/AnalyzeView.jsx`
+
+### 3. diff 렌더링 성능 개선 (대용량 파일 렉 제거)
+
+- 문제: 전체 파일을 diff할 때 코드가 크면 렌더가 오래 걸리고 렉이 걸렸음.
+- 원인: `(n+1)×(m+1)` LCS 행렬을 통째로 계산(O(n·m)), 게다가 통계(`diffStats`)와 뷰(`diffSplit`)가 각각 LCS를 돌려 패치당 2회·렌더마다 반복, 메모이즈 없음.
+- 수정: 공통 prefix/suffix를 먼저 잘라내고 변경된 가운데 영역에만 LCS를 적용함(패치는 함수 하나만 바꾸므로 실측 비용이 변경부 크기에 비례). 거대 변경부는 상한 초과 시 폴백해 프리즈를 방지함.
+- 수정: `DiffView`에서 diff를 `useMemo`로 1회만 계산하고 split·통계를 그 결과에서 파생함. `buildFixedFile` 합성은 `PatchDiff` 컴포넌트로 분리해 입력이 바뀔 때만 재계산하도록 함.
+- 효과: 5,000줄/1줄 변경 기준 diff 계산 시간 약 680ms → 1ms (기존 알고리즘과 출력 동일성 검증 완료).
+- 수정 파일: `dashboard/src/utils/diff.js`, `dashboard/src/components/DiffView.jsx`, `dashboard/src/components/AnalyzeView.jsx`
+
+### 4. Findings/Defense 탭이 비어 보이는 문제 수정 (DB 폴백)
+
+- 문제: 스캔 후 Stats 탭은 건수(예: 4건)가 나오는데 Findings 탭은 "NO RECORDS", Defense 탭은 "NO PATCHES"로 비어 보임.
+- 원인: `/api/stats`는 `full_result.json`이 없으면 DB(`get_stats`)로 폴백하지만, `/api/vulnerabilities`·`/api/patches`는 DB 폴백이 없어 빈 bandit 리포트로 떨어짐. 분석은 DB에 저장되는데 이 엔드포인트들이 DB를 안 읽었음.
+- 수정: `/api/vulnerabilities`·`/api/patches`도 `load_full_result() or db_service.get_latest_analysis()`로 stats와 동일하게 DB 폴백하도록 함(파일별/유형별 차트는 `get_vulnerabilities` 재사용으로 함께 해결).
+- 수정 파일: `api/server.py`
+
+### 5. Defense 탭 레이아웃 정리 (설명문 가독성 + 전체 파일 diff)
+
+- 문제: 블루팀 수정안 설명이 마크다운(`**굵게**`, 번호/글머리 목록, `---`)과 줄바꿈을 포함하는데 한 덩어리 문자열로 출력돼 읽기 어려웠음. 또한 Defense의 diff는 `original_code`(스니펫) vs `fixed_code`(파일 전체)라 거의 다 "+추가"로 보여 redscan과 모양이 달랐음.
+- 수정(설명): 의존성 없는 경량 마크다운 렌더러 `Markdown` 컴포넌트를 추가해 줄바꿈 보존 + 굵게/인라인 코드/번호·글머리 목록(들여쓰기)/구분선을 사람이 보기 좋게 렌더함.
+- 수정(diff): 분석 대상 **전체 원본 소스를 DB에 저장**(AES-256 암호화)하고, Defense 탭이 `buildFixedFile`로 redscan과 동일한 전체 파일 좌우 diff를 합성하도록 함. `/api/patches`가 패치마다 `source_full`을 함께 반환함.
+- DB: `analysis_runs.source_code` 컬럼 추가 + 기존 SQLite DB에 컬럼이 없으면 자동으로 추가하는 마이그레이션(`_migrate_add_columns`)을 `init_db`에 넣음.
+- 주의: 전체 원본은 이 변경 이후 실행한 스캔부터 저장됨. 이전 패치는 `source_full`이 없어 스니펫 단위 diff로 폴백함(전체 파일로 보려면 재스캔 필요).
+- 수정 파일: `dashboard/src/components/Markdown.jsx`(신규), `dashboard/src/components/PatchView.jsx`, `api/server.py`, `db/models.py`, `db/service.py`, `analyzer/pipeline.py`
+
+### 검증 (2차)
+
+- `dashboard` `npm run build` 통과
+- 브라우저 실측: 스캔→결과 렌더 정상(검은 화면 없음, 콘솔 에러 0), redscan/Defense diff 모두 전체 파일 split 렌더, Findings/Defense 탭 데이터 정상 표시
+- API 일관성: `/api/stats`·`/api/vulnerabilities`·`/api/patches` 건수 일치, `/api/patches`에 `source_full` 포함
+- diff 알고리즘: prefix/suffix 트리밍 결과가 기존 전체 LCS와 모든 케이스에서 동일함을 단위 검증
+
 ## 2026-06-01
 
 ### 1. 코드 비교 UI 개선 (GitHub PR diff 스타일)

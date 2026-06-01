@@ -1,7 +1,8 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react'
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { COLORS, SEVERITY, alpha, rgba } from '../colors'
 import { apiFetch } from '../api/client'
 import DiffView from './DiffView'
+import { buildFixedFile } from '../utils/diff'
 import VulnMeta, { PriorityBadge } from './VulnMeta'
 
 const API = window.location.origin
@@ -389,6 +390,8 @@ function withOptionalScopes(payload, scopes) {
 
 export default function AnalyzeView({ onComplete }) {
   const [code, setCode] = useState('')
+  // 분석에 실제로 제출한 전체 원본 소스 (diff 좌측 = 전체 원본용)
+  const [analyzedSource, setAnalyzedSource] = useState('')
   const [filename, setFilename] = useState('my_code.py')
   const [useLlm, setUseLlm] = useState(false)
   const [multiPatch, setMultiPatch] = useState(false)
@@ -602,6 +605,7 @@ export default function AnalyzeView({ onComplete }) {
     setStatus('polling')
     setStep('> POST /api/analyze')
     setResult(null)
+    setAnalyzedSource(analyzeCode)
     const scopes = parseScopeText(scopeText)
 
     try {
@@ -1441,14 +1445,28 @@ security_revalidation
 
       {/* 결과 */}
       {status === 'completed' && result && (
-        <ResultView result={result} />
+        <ResultView result={result} source={analyzedSource || code || ''} />
       )}
     </div>
   )
 }
 
 
-function ResultView({ result }) {
+// 전체 원본(좌) vs 전체 수정본(우) diff. 전체 원본이 있으면 패치를 합성해
+// 전체 수정 파일을 만들고, 없으면 함수 단위로 폴백한다. 합성 결과는 입력이
+// 바뀔 때만 재계산(useMemo)해 부모 리렌더 시 불필요한 재합성을 막는다.
+function PatchDiff({ source = '', fixedCode = '', lineNumber, fallback = '' }) {
+  const { original, fixed } = useMemo(() => {
+    const fullSource = source || ''
+    return {
+      original: fullSource || fallback || '',
+      fixed: fullSource ? buildFixedFile(fullSource, fixedCode, lineNumber) : fixedCode,
+    }
+  }, [source, fixedCode, lineNumber, fallback])
+  return <DiffView original={original} fixed={fixed} />
+}
+
+function ResultView({ result, source = '' }) {
   const rawSummary = result.summary || {}
   const redBlue = result.red_blue_summary || {}
   const red = redBlue.red_team || {}
@@ -1927,9 +1945,11 @@ function ResultView({ result }) {
                       {' '}· residual_risk: <span style={{ color: 'var(--amber)' }}>{patch.residual_risk || 'unknown'}</span>
                     </div>
                   )}
-                  <DiffView
-                    original={v.function_code || v.code_snippet || ''}
-                    fixed={patch.fixed_code}
+                  <PatchDiff
+                    source={source}
+                    fixedCode={patch.fixed_code}
+                    lineNumber={v.line_number}
+                    fallback={v.function_code || v.code_snippet || ''}
                   />
 
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 12, flexWrap: 'wrap' }}>
