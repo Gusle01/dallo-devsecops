@@ -65,7 +65,7 @@ const Block = ({ label, key_, value, accent, ratio, delay }) => {
           fontSize: 'clamp(36px, 4.5vw, 56px)',
           color: accent,
           marginBottom: 12,
-          textShadow: accent === COLORS.phosphor ? `0 0 24px rgba(158, 255, 125, 0.3)` : 'none',
+          textShadow: accent === COLORS.phosphor ? `0 0 24px rgba(10, 125, 86, 0.18)` : 'none',
         }}
       >
         {String(value).padStart(2, '0')}
@@ -79,7 +79,7 @@ const Block = ({ label, key_, value, accent, ratio, delay }) => {
         lineHeight: 1,
         whiteSpace: 'nowrap',
         overflow: 'hidden',
-        textShadow: accent === COLORS.phosphor ? `0 0 6px rgba(158, 255, 125, 0.4)` : 'none',
+        textShadow: accent === COLORS.phosphor ? `0 0 6px rgba(10, 125, 86, 0.22)` : 'none',
       }}>
         {bar}
       </div>
@@ -100,12 +100,12 @@ export default function StatsCards({ stats }) {
   const max = Math.max(total, 1)
 
   const cards = [
-    { key_: 'TOT', label: 'total',     value: total,     accent: COLORS.ink,      ratio: total / max },
-    { key_: 'HIG', label: 'high',      value: high,      accent: COLORS.blood,    ratio: high / max },
-    { key_: 'MED', label: 'med',       value: medium,    accent: COLORS.amber,    ratio: medium / max },
-    { key_: 'LOW', label: 'low',       value: low,       accent: COLORS.cyan,     ratio: low / max },
-    { key_: 'GEN', label: 'drafted',   value: drafted,   accent: COLORS.cyan,     ratio: drafted / Math.max(total, 1) },
-    { key_: 'VER', label: 'witnessed', value: witnessed, accent: COLORS.phosphor, ratio: witnessed / Math.max(total, 1) },
+    { key_: 'TOT', label: '전체',     value: total,     accent: COLORS.ink,      ratio: total / max },
+    { key_: 'HIG', label: '높음',      value: high,      accent: COLORS.blood,    ratio: high / max },
+    { key_: 'MED', label: '중간',       value: medium,    accent: COLORS.amber,    ratio: medium / max },
+    { key_: 'LOW', label: '낮음',       value: low,       accent: COLORS.cyan,     ratio: low / max },
+    { key_: 'GEN', label: '초안',   value: drafted,   accent: COLORS.cyan,     ratio: drafted / Math.max(total, 1) },
+    { key_: 'VER', label: '검증', value: witnessed, accent: COLORS.phosphor, ratio: witnessed / Math.max(total, 1) },
   ]
 
   return (

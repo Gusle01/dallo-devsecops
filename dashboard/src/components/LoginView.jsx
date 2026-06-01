@@ -46,21 +46,32 @@ export default function LoginView({ onLogin }) {
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      background: '#0a0a0a',
+      padding: 20,
+      background: 'radial-gradient(120% 80% at 50% -10%, #ffffff, transparent 60%), var(--bg)',
     }}>
       <form onSubmit={handleSubmit} style={{
-        background: '#111',
-        border: '1px solid #2a2a2a',
-        borderRadius: 8,
-        padding: '40px 32px',
-        width: 380,
+        background: 'var(--bg-elev)',
+        border: '1px solid var(--rule-hot)',
+        borderRadius: 'var(--radius)',
+        boxShadow: 'var(--shadow-lg)',
+        padding: '44px 36px',
+        width: 392,
         textAlign: 'center',
       }}>
-        <div style={{ fontSize: 28, fontWeight: 700, color: '#e0e0e0', marginBottom: 4 }}>
-          DALLO
+        {/* 브랜드 악센트 */}
+        <div style={{
+          width: 38, height: 3, borderRadius: 3,
+          background: 'var(--phosphor)', margin: '0 auto 22px',
+        }} />
+        <div style={{
+          fontFamily: 'var(--font-display)',
+          fontSize: 36, fontWeight: 600, color: 'var(--ink)',
+          letterSpacing: '-0.02em', lineHeight: 1, marginBottom: 8,
+        }}>
+          dallo<span style={{ color: 'var(--ink-faint)', fontWeight: 400 }}>.</span><span style={{ color: 'var(--phosphor)' }}>sec</span>
         </div>
-        <div style={{ fontSize: 12, color: '#666', marginBottom: 32, letterSpacing: 2 }}>
-          DevSecOps Dashboard
+        <div style={{ fontSize: 13, color: 'var(--ink-dim)', marginBottom: 30 }}>
+          DevSecOps 보안 대시보드
         </div>
 
         <input
@@ -71,12 +82,12 @@ export default function LoginView({ onLogin }) {
           autoFocus
           style={{
             width: '100%',
-            padding: '10px 12px',
+            padding: '12px 14px',
             fontSize: 14,
-            background: '#0a0a0a',
-            border: '1px solid #333',
-            borderRadius: 4,
-            color: '#e0e0e0',
+            background: 'var(--bg)',
+            border: '1px solid var(--rule-hot)',
+            borderRadius: 'var(--radius-sm)',
+            color: 'var(--ink)',
             outline: 'none',
             boxSizing: 'border-box',
             marginBottom: 12,
@@ -84,7 +95,7 @@ export default function LoginView({ onLogin }) {
         />
 
         {error && (
-          <div style={{ color: '#ff4444', fontSize: 12, marginBottom: 12 }}>
+          <div style={{ color: 'var(--blood)', fontSize: 13, marginBottom: 12 }}>
             {error}
           </div>
         )}
@@ -94,20 +105,22 @@ export default function LoginView({ onLogin }) {
           disabled={loading}
           style={{
             width: '100%',
-            padding: '10px 0',
+            padding: '12px 0',
             fontSize: 14,
             fontWeight: 600,
-            background: loading ? '#333' : '#e0e0e0',
-            color: '#0a0a0a',
+            fontFamily: 'var(--font-body)',
+            background: loading ? 'var(--bg-elev-2)' : 'var(--phosphor)',
+            color: loading ? 'var(--ink-faint)' : '#fff',
             border: 'none',
-            borderRadius: 4,
+            borderRadius: 'var(--radius-sm)',
             cursor: loading ? 'wait' : 'pointer',
+            boxShadow: loading ? 'none' : 'var(--shadow-sm)',
           }}
         >
-          {loading ? '확인 중...' : '로그인'}
+          {loading ? '확인 중…' : '로그인'}
         </button>
 
-        <div style={{ fontSize: 11, color: '#555', marginTop: 16 }}>
+        <div style={{ fontSize: 12, color: 'var(--ink-faint)', marginTop: 18 }}>
           API Key는 관리자에게 문의하세요.
         </div>
       </form>

@@ -40,18 +40,18 @@ export default function PatchView({ patches }) {
       <div>
         <div className="page-header">
           <h1 className="page-title">
-            <em>$</em>&nbsp;defense <span style={{ color: 'var(--ink-faint)' }}>--list</span>
+            블루팀 수정
           </h1>
           <p className="page-subtitle">
-            blue team remediation actions · awaiting review · 0 records
+            블루팀 수정 조치 · 검토 대기 · 0건
           </p>
         </div>
 
         <div className="empty-state">
           <div className="empty-state__icon">∅</div>
-          <div className="empty-state__title">no patches on file</div>
+          <div className="empty-state__title">수정안 없음</div>
           <div className="empty-state__description">
-            run a redscan with LLM enabled to populate blue team actions
+            LLM을 켜고 레드팀 분석을 실행하면 블루팀 조치가 채워집니다
           </div>
         </div>
       </div>
@@ -62,11 +62,11 @@ export default function PatchView({ patches }) {
     <div>
       <div className="page-header">
         <h1 className="page-title">
-          Blue <em style={{ fontStyle: 'italic', color: 'var(--cyan)' }}>Team</em>
-          <br/>Defense Actions.
+          블루팀 <em style={{ fontStyle: 'italic', color: 'var(--cyan)' }}>방어</em>
+          <br/>조치
         </h1>
         <p className="page-subtitle">
-          {patches.length} record(s) returned · llm remediation with syntax and security revalidation
+          {patches.length}건 · 문법·보안 재검증을 거친 LLM 수정
         </p>
       </div>
 
@@ -79,7 +79,7 @@ export default function PatchView({ patches }) {
           fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-dim)',
           textTransform: 'uppercase', letterSpacing: '0.14em', marginRight: 8, alignSelf: 'center',
         }}>
-          $ jump →
+          바로가기 →
         </span>
         {patches.map((p, i) => {
           const status = getStatus(p)
@@ -181,7 +181,7 @@ export default function PatchView({ patches }) {
                     flexShrink: 0,
                     color: cfg.color,
                   }}>
-                    {englishStatus}
+                    {cfg.label}
                   </span>
                 </div>
               </div>
@@ -224,9 +224,9 @@ export default function PatchView({ patches }) {
                       textTransform: 'uppercase',
                       letterSpacing: '0.08em',
                     }}>
-                      <div>phase: <span style={{ color: 'var(--cyan)' }}>{p.blue_team_phase || 'remediation'}</span></div>
-                      <div>outcome: <span style={{ color: 'var(--phosphor)' }}>{p.defense_outcome || 'drafted_defense'}</span></div>
-                      <div>residual_risk: <span style={{ color: 'var(--amber)' }}>{p.residual_risk || 'unknown'}</span></div>
+                      <div>단계: <span style={{ color: 'var(--cyan)' }}>{p.blue_team_phase || 'remediation'}</span></div>
+                      <div>결과: <span style={{ color: 'var(--phosphor)' }}>{p.defense_outcome || 'drafted_defense'}</span></div>
+                      <div>잔여 위험: <span style={{ color: 'var(--amber)' }}>{p.residual_risk || 'unknown'}</span></div>
                       {p.defense_strategy && (
                         <div style={{ textTransform: 'none', letterSpacing: 0, marginTop: 8, color: 'var(--ink-soft)' }}>
                           {p.defense_strategy}
@@ -269,7 +269,7 @@ export default function PatchView({ patches }) {
                       </div>
 
                       <div className="section-label" style={{ color: 'var(--phosphor)', marginTop: 18, marginBottom: 8 }}>
-                        ── before / after <span style={{ color: 'var(--ink-faint)' }}>// red → blue</span>
+                        ── 수정 전 / 후 <span style={{ color: 'var(--ink-faint)' }}>// 레드 → 블루</span>
                       </div>
                       {(() => {
                         // 전체 원본이 있으면 redscan처럼 전체 파일 좌우 diff로 합성,
@@ -301,14 +301,14 @@ export default function PatchView({ patches }) {
                             letterSpacing: '0.14em',
                           }}>
                             {p.security_revalidation.passed
-                              ? '[OK] revalidation.passed'
-                              : '[FAIL] revalidation.regressed'}
+                              ? '[OK] 재검증 통과'
+                              : '[FAIL] 재검증 회귀'}
                           </div>
                           <div style={{ color: 'var(--ink-dim)', lineHeight: 1.7, fontFamily: 'var(--font-mono)', fontSize: 11 }}>
                             <div>
-                              tool: <span style={{ color: 'var(--cyan)' }}>{p.security_revalidation.tool_used}</span>{' '}
-                              · before: <span style={{ color: 'var(--ink)' }}>{p.security_revalidation.original_vuln_count}</span>{' '}
-                              → after: <span style={{ color: 'var(--ink)' }}>{p.security_revalidation.fixed_vuln_count}</span>
+                              도구: <span style={{ color: 'var(--cyan)' }}>{p.security_revalidation.tool_used}</span>{' '}
+                              · 이전: <span style={{ color: 'var(--ink)' }}>{p.security_revalidation.original_vuln_count}</span>{' '}
+                              → 이후: <span style={{ color: 'var(--ink)' }}>{p.security_revalidation.fixed_vuln_count}</span>
                               {p.security_revalidation.removed_count > 0 && (
                                 <span style={{ color: 'var(--phosphor)' }}>
                                   {' '}(-{p.security_revalidation.removed_count})
@@ -317,7 +317,7 @@ export default function PatchView({ patches }) {
                             </div>
                             {p.security_revalidation.introduced_count > 0 && (
                               <div style={{ color: 'var(--blood)', marginTop: 8 }}>
-                                {'>'} regression introduced:
+                                {'>'} 새 취약점 발생:
                                 {p.security_revalidation.new_vulnerabilities?.map((v, vi) => (
                                   <div key={vi} style={{ marginLeft: 14, fontSize: 11, marginTop: 2 }}>
                                     {'  '}[{v.severity}] {v.rule_id} :: {v.title}

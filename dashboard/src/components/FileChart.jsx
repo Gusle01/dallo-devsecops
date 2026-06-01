@@ -26,9 +26,9 @@ export default function FileChart({ data }) {
   return (
     <div className="glass glass-card">
       <div style={{ marginBottom: 18 }}>
-        <span className="chapter-label">FIG.01</span>
-        <h3 className="section-title">findings_per_file</h3>
-        <p className="text-subtitle"># count by source path</p>
+        <span className="chapter-label">도표 1</span>
+        <h3 className="section-title">파일별 탐지</h3>
+        <p className="text-subtitle">소스 경로별 탐지 건수</p>
       </div>
 
       {chartData.length === 0 ? (
@@ -57,7 +57,7 @@ export default function FileChart({ data }) {
             <Tooltip
               contentStyle={tt}
               labelStyle={{ color: COLORS.phosphor, fontWeight: 700, fontFamily: 'JetBrains Mono, monospace' }}
-              cursor={{ fill: 'rgba(158, 255, 125, 0.06)' }}
+              cursor={{ fill: 'rgba(10, 125, 86, 0.06)' }}
             />
             <Legend
               wrapperStyle={{

@@ -35,8 +35,8 @@ const CELL = {
 }
 
 const ROW_BG = {
-  add: 'rgba(158, 255, 125, 0.10)',
-  del: 'rgba(255, 61, 36, 0.10)',
+  add: 'rgba(10, 125, 86, 0.12)',
+  del: 'rgba(210, 58, 44, 0.10)',
   equal: 'transparent',
 }
 const SIGN_COLOR = {
@@ -95,7 +95,7 @@ function SplitView({ rows }) {
   const sideCell = (side) => {
     if (!side) {
       return (
-        <td colSpan={2} style={{ background: 'rgba(0,0,0,0.18)', borderRight: '1px solid var(--rule)' }} />
+        <td colSpan={2} style={{ background: 'var(--bg-deep)', borderRight: '1px solid var(--rule)' }} />
       )
     }
     return (

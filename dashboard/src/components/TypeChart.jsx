@@ -26,9 +26,9 @@ export default function TypeChart({ data }) {
   return (
     <div className="glass glass-card">
       <div style={{ marginBottom: 18 }}>
-        <span className="chapter-label">FIG.02</span>
-        <h3 className="section-title">findings_per_class</h3>
-        <p className="text-subtitle"># taxonomy of defects</p>
+        <span className="chapter-label">도표 2</span>
+        <h3 className="section-title">유형별 탐지</h3>
+        <p className="text-subtitle">취약점 유형 분류</p>
       </div>
 
       {chartData.length === 0 ? (
@@ -75,7 +75,7 @@ export default function TypeChart({ data }) {
             <div className="display-number" style={{
               fontSize: 44,
               color: COLORS.phosphor,
-              textShadow: '0 0 18px rgba(158, 255, 125, 0.4)',
+              textShadow: 'none',
             }}>
               {String(total).padStart(2, '0')}
             </div>
@@ -87,7 +87,7 @@ export default function TypeChart({ data }) {
               textTransform: 'uppercase',
               letterSpacing: '0.18em',
             }}>
-              total · n
+              전체
             </div>
           </div>
         </div>

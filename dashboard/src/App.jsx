@@ -78,7 +78,7 @@ export default function App() {
       setPatches(p.patches || [])
       setLoading(false)
     }).catch(e => {
-      setError(`API_OFFLINE: ${e.message} — start with: $ python start.py`)
+      setError(`API 서버에 연결할 수 없습니다 (${e.message}) — 실행: python start.py`)
       setLoading(false)
     })
   }
@@ -105,8 +105,8 @@ export default function App() {
     { id: 'history',   num: '08', cmd: 'log',      ko: '이력' },
   ]
 
-  const status = error ? 'OFFLINE' : loading ? 'BOOTING' : 'READY'
-  const statusColor = error ? '#ff3d24' : loading ? '#ffb000' : '#0a0a0a'
+  const status = error ? '오프라인' : loading ? '준비 중' : '정상'
+  const statusColor = error ? 'var(--blood)' : loading ? 'var(--amber)' : 'var(--phosphor)'
   const totalIssues = stats?.total_issues ?? '--'
 
   return (
@@ -119,13 +119,12 @@ export default function App() {
         </span>
         <span className="statusbar__cell">{fmtDate(now)}</span>
         <span className="statusbar__cell">{fmtTime(now)} KST</span>
-        <span className="statusbar__cell">PID 0x{Math.floor(Math.random() * 0xffff).toString(16).padStart(4, '0').toUpperCase()}</span>
         <span className="statusbar__cell" style={{ marginLeft: 'auto' }}>
-          STATE: <span style={{ background: statusColor, color: status === 'READY' ? '#0a0a0a' : '#fff', padding: '0 6px' }}>{status}</span>
+          상태 <span style={{ background: statusColor, color: '#fff', padding: '1px 9px', borderRadius: 999, fontWeight: 600 }}>{status}</span>
         </span>
-        <span className="statusbar__cell">ISSUES {totalIssues}</span>
+        <span className="statusbar__cell">이슈 {totalIssues}</span>
         <span className="statusbar__cell" style={{ cursor: 'pointer' }} onClick={handleLogout} title="로그아웃">
-          [LOGOUT]
+          로그아웃
         </span>
       </div>
 
@@ -143,23 +142,21 @@ export default function App() {
                 <span className="masthead__bracket">]</span>
               </div>
               <div style={{
-                fontFamily: 'var(--font-mono)',
-                fontSize: 10,
+                fontFamily: 'var(--font-body)',
+                fontSize: 12.5,
                 color: 'var(--ink-dim)',
-                marginTop: 8,
-                textTransform: 'uppercase',
-                letterSpacing: '0.14em',
+                marginTop: 10,
+                letterSpacing: 0,
                 paddingLeft: 22,
               }}>
-                # red team scan · blue team defense · before/after evidence
+                레드팀 스캔 · 블루팀 방어 · 수정 전/후 근거
               </div>
             </div>
 
             <div className="masthead__meta">
-              <div>uptime <strong>{Math.floor((now - new Date(now.getFullYear(), now.getMonth(), now.getDate())) / 1000 / 60)}m</strong></div>
-              <div>build <strong>2026.04.09</strong></div>
-              <div>llm <strong>gemini-2.0-flash-lite</strong></div>
-              <div>tty <strong>/dev/dallo</strong></div>
+              <div>가동 <strong>{Math.floor((now - new Date(now.getFullYear(), now.getMonth(), now.getDate())) / 1000 / 60)}분</strong></div>
+              <div>빌드 <strong>2026.04.09</strong></div>
+              <div>모델 <strong>gemini-2.0-flash-lite</strong></div>
             </div>
           </div>
 
@@ -172,7 +169,7 @@ export default function App() {
                   className={`tab-btn ${tab === t.id ? 'tab-btn--active' : ''}`}
                 >
                   <span className="tab-btn__num">{t.num}</span>
-                  {t.cmd}
+                  {t.ko}
                 </button>
               ))}
             </div>
@@ -191,13 +188,12 @@ export default function App() {
             textAlign: 'center',
             padding: '120px 20px',
             color: 'var(--ink-dim)',
-            fontFamily: 'var(--font-mono)',
-            fontSize: 11,
-            textTransform: 'uppercase',
-            letterSpacing: '0.14em',
+            fontFamily: 'var(--font-body)',
+            fontSize: 13,
+            letterSpacing: 0,
           }}>
             <div className="loader" />
-            <div>$ booting analyzers</div>
+            <div>분석기를 준비하는 중…</div>
           </div>
         ) : (
           (() => {
@@ -213,18 +209,16 @@ export default function App() {
                 <div className={directionClass} key={tab} style={{ display: tab === 'analyze' ? 'none' : 'block' }}>
                   {currentChapter && (
                     <div className="chapter-label">
-                      {currentChapter.num} / {currentChapter.cmd}
+                      {currentChapter.num} · {currentChapter.ko}
                     </div>
                   )}
 
                 {tab === 'dashboard' && (
                   <>
                     <div className="page-header">
-                      <h1 className="page-title">
-                        <em>$</em>&nbsp;stats
-                      </h1>
+                      <h1 className="page-title">대시보드</h1>
                       <p className="page-subtitle">
-                        red team findings and blue team remediation evidence from the latest run
+                        최근 실행의 레드팀 탐지 결과와 블루팀 수정 근거를 한눈에 봅니다
                       </p>
                     </div>
                     <StatsCards stats={stats} />
@@ -250,22 +244,20 @@ export default function App() {
         {/* Footer status line */}
         <footer style={{
           marginTop: 80,
-          paddingTop: 14,
-          borderTop: '1px solid var(--rule-hot)',
-          fontFamily: 'var(--font-mono)',
-          fontSize: 10,
+          paddingTop: 16,
+          borderTop: '1px solid var(--rule)',
+          fontFamily: 'var(--font-body)',
+          fontSize: 12,
           color: 'var(--ink-faint)',
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
           flexWrap: 'wrap',
           gap: 12,
-          textTransform: 'uppercase',
-          letterSpacing: '0.14em',
+          letterSpacing: 0,
         }}>
-          <span>-- {tab.toUpperCase()} --</span>
-          <span>L1 · C1 · UTF-8 · UNIX · NOEOL</span>
-          <span>:wq</span>
+          <span>dallo · AI 공격·방어 보안 분석</span>
+          <span>{tabs.find(t => t.id === tab)?.ko}</span>
         </footer>
       </main>
     </>

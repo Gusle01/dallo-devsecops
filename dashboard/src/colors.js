@@ -1,61 +1,60 @@
-// Terminal palette — single source of truth
+// Warm-paper light palette — single source of truth
 export const COLORS = {
-  // Terminal accents
-  phosphor:   '#9eff7d',  // primary — phosphor green
-  phosphorDim:'#5fa050',
-  amber:      '#ffb000',  // warning
-  amberDim:   '#a07000',
-  blood:      '#ff3d24',  // critical
-  bloodDim:   '#a02817',
-  bloodDeep:  '#c8160c',
-  cyan:       '#5dd6ff',  // info / link
-  cyanDim:    '#3a7c96',
-  magenta:    '#ff5fb8',  // rare accent
+  // Accents (tuned for readability on white)
+  phosphor:   '#0a7d56',  // brand — mature emerald
+  phosphorDim:'#0a6646',
+  amber:      '#b9740b',  // warning
+  amberDim:   '#8a5608',
+  blood:      '#d23a2c',  // high / danger
+  bloodDim:   '#a52a1f',
+  bloodDeep:  '#b21f16',  // critical
+  cyan:       '#2563c9',  // info / link (blue)
+  cyanDim:    '#3f6fc0',
+  magenta:    '#b5179e',  // rare accent
 
   // Surfaces
-  bg:         '#0a0a0a',
-  bgDeep:     '#050505',
-  bgElev:     '#131311',
-  bgElev2:    '#1a1a17',
-  bgRow:      '#0f0f0d',
+  bg:         '#f5f4f0',
+  bgDeep:     '#ecebe4',
+  bgElev:     '#ffffff',
+  bgElev2:    '#f3f1ea',
+  bgRow:      '#faf9f5',
 
   // Ink
-  ink:        '#e9e6d8',
-  inkDim:     '#8a8678',
-  inkFaint:   '#4a4843',
-  inkGhost:   '#2a2a26',
+  ink:        '#232019',
+  inkDim:     '#6b6557',
+  inkFaint:   '#9c958a',
+  inkGhost:   '#cbc6ba',
 
-  rule:       '#232320',
-  ruleHot:    '#3a3a34',
+  rule:       '#e8e5dd',
+  ruleHot:    '#dcd8cd',
 
   // Legacy semantic aliases (compat with existing component imports)
-  danger:        '#ff3d24',
-  warning:       '#ffb000',
-  success:       '#9eff7d',
-  info:          '#5dd6ff',
-  purple:        '#ff5fb8',
-  brand:         '#9eff7d',
-  brandLight:    '#9eff7d',
-  critical:      '#c8160c',
-  muted:         '#8a8678',
-  textPrimary:   '#e9e6d8',
-  textSecondary: '#8a8678',
-  textTertiary:  '#8a8678',
+  danger:        '#d23a2c',
+  warning:       '#b9740b',
+  success:       '#0a7d56',
+  info:          '#2563c9',
+  purple:        '#b5179e',
+  brand:         '#0a7d56',
+  brandLight:    '#0e9f6e',
+  critical:      '#b21f16',
+  muted:         '#6b6557',
+  textPrimary:   '#232019',
+  textSecondary: '#6b6557',
+  textTertiary:  '#6b6557',
 
-  // Editorial-era aliases — preserved so components written before the
-  // terminal redesign keep working without per-file rewrites.
-  rust:      '#9eff7d',  // accent role → phosphor
-  rustSoft:  '#5fa050',
-  oxblood:   '#c8160c',
-  ochre:     '#ffb000',
-  olive:     '#9eff7d',
-  navy:      '#5dd6ff',
-  plum:      '#ff5fb8',
-  paper:     '#0a0a0a',
-  paperDeep: '#050505',
-  paperHi:   '#131311',
-  inkSoft:   '#e9e6d8',
-  inkMute:   '#8a8678',
+  // Editorial-era aliases — preserved so older components keep working.
+  rust:      '#0a7d56',  // accent role → emerald
+  rustSoft:  '#0a6646',
+  oxblood:   '#b21f16',
+  ochre:     '#b9740b',
+  olive:     '#0a7d56',
+  navy:      '#2563c9',
+  plum:      '#b5179e',
+  paper:     '#f5f4f0',
+  paperDeep: '#ecebe4',
+  paperHi:   '#ffffff',
+  inkSoft:   '#232019',
+  inkMute:   '#6b6557',
 }
 
 // Semantic severity mapping
@@ -75,7 +74,7 @@ export const STATUS = {
   pending:   COLORS.inkDim,
 }
 
-// Terminal chart palette — phosphor + warning hues only
+// Chart palette — readable hues on a light background
 export const CHART_PALETTE = [
   COLORS.blood,
   COLORS.amber,

@@ -197,9 +197,9 @@ const CodeEditor = React.forwardRef(function CodeEditor({ code, onChange, findin
   return (
     <div style={{
       borderRadius: 0,
-      border: '1px solid var(--ink)',
-      borderLeft: '2px solid var(--ink)',
-      background: '#15130f',
+      border: '1px solid var(--rule-hot)',
+      borderLeft: '2px solid var(--rule-bright)',
+      background: 'var(--bg-elev)',
       overflow: 'hidden',
       position: 'relative',
       height: 340,
@@ -224,8 +224,8 @@ const CodeEditor = React.forwardRef(function CodeEditor({ code, onChange, findin
             width: 48,
             minWidth: 48,
             userSelect: 'none',
-            borderRight: '1px solid rgba(255, 255, 255, 0.08)',
-            background: 'rgba(255, 255, 255, 0.025)',
+            borderRight: '1px solid var(--rule)',
+            background: 'rgba(35, 32, 25, 0.03)',
           }}>
             {Array.from({ length: lineCount }, (_, i) => {
               const ln = i + 1
@@ -242,10 +242,10 @@ const CodeEditor = React.forwardRef(function CodeEditor({ code, onChange, findin
                   paddingRight: 10,
                   fontSize: 12,
                   fontFamily: 'JetBrains Mono, monospace',
-                  color: hasWarning ? SEVERITY_COLORS[highestSev].text : 'rgba(232, 224, 200, 0.45)',
+                  color: hasWarning ? SEVERITY_COLORS[highestSev].text : 'var(--ink-faint)',
                   fontWeight: hasWarning ? 700 : 400,
                   background: highlightLine === ln
-                    ? 'rgba(171, 74, 52, 0.28)'
+                    ? 'rgba(185, 116, 11, 0.20)'
                     : hasWarning ? SEVERITY_COLORS[highestSev].bg : 'transparent',
                   transition: 'background 0.3s',
                 }}>
@@ -263,8 +263,8 @@ const CodeEditor = React.forwardRef(function CodeEditor({ code, onChange, findin
             <div className="code-editor__comments" style={{
               width: 280,
               minWidth: 280,
-              borderLeft: '1px solid rgba(255, 255, 255, 0.08)',
-              background: 'rgba(255, 255, 255, 0.02)',
+              borderLeft: '1px solid var(--rule)',
+              background: 'rgba(35, 32, 25, 0.02)',
             }}>
               {Array.from({ length: lineCount }, (_, i) => {
                 const ln = i + 1
@@ -285,7 +285,7 @@ const CodeEditor = React.forwardRef(function CodeEditor({ code, onChange, findin
                     alignItems: 'center',
                     paddingLeft: 8,
                     paddingRight: 8,
-                    background: highlightLine === ln ? 'rgba(171, 74, 52, 0.18)' : 'transparent',
+                    background: highlightLine === ln ? 'rgba(185, 116, 11, 0.14)' : 'transparent',
                     transition: 'background 0.3s',
                   }}>
                     <div
@@ -336,11 +336,11 @@ const CodeEditor = React.forwardRef(function CodeEditor({ code, onChange, findin
           paddingRight: 18,
           border: 'none',
           background: 'transparent',
-          color: '#e8e0c8',
+          color: 'var(--ink)',
           fontSize: 13,
           fontFamily: 'JetBrains Mono, monospace',
           lineHeight: 1.7,
-          caretColor: '#ab4a34',
+          caretColor: 'var(--phosphor)',
           resize: 'none',
           outline: 'none',
           whiteSpace: 'pre',
@@ -664,10 +664,10 @@ export default function AnalyzeView({ onComplete }) {
     <div>
       <div className="page-header">
         <h1 className="page-title">
-          <em>$</em>&nbsp;redscan <span style={{ color: 'var(--ink-faint)' }}>--target ./oss</span>
+          레드팀 분석
         </h1>
         <p className="page-subtitle">
-          red team identifies exploitable code paths; blue team drafts LLM remediation and validates before/after risk
+          레드팀이 악용 가능한 코드 경로를 찾고, 블루팀이 LLM으로 수정안을 만들어 수정 전/후 위험을 검증합니다
         </p>
       </div>
 
@@ -721,7 +721,7 @@ export default function AnalyzeView({ onComplete }) {
               letterSpacing: '0.14em',
             }}
           >
-[ open file ]
+파일 열기
           </button>
           <button
             onClick={() => folderRef.current.click()}
@@ -738,7 +738,7 @@ export default function AnalyzeView({ onComplete }) {
               letterSpacing: '0.14em',
             }}
           >
-[ open dir ]
+폴더 열기
           </button>
           <div style={{ position: 'relative' }}>
             <button
@@ -754,7 +754,7 @@ export default function AnalyzeView({ onComplete }) {
                 fontWeight: 500,
               }}
             >
-[ samples ▾ ]
+예제 ▾
             </button>
             {sampleMenu && (
               <div className="glass-strong fade-in" style={{
@@ -797,7 +797,7 @@ export default function AnalyzeView({ onComplete }) {
                   border: '2px solid var(--border-default)', borderTopColor: COLORS.purple,
                   borderRadius: '50%', animation: 'spin 0.8s linear infinite', marginBottom: 8,
                 }} />
-                <div>scanning project... ({projectFiles.length} files)</div>
+                <div>프로젝트 스캔 중… ({projectFiles.length}개 파일)</div>
               </div>
             )}
 
@@ -812,7 +812,7 @@ export default function AnalyzeView({ onComplete }) {
                     background: rgba(COLORS.purple, 0.1), border: `1px solid ${rgba(COLORS.purple, 0.3)}`,
                     fontSize: 12, color: COLORS.purple, fontWeight: 600,
                   }}>
-                    {projectResults.total_files} files
+                    {projectResults.total_files}개 파일
                   </div>
                   <div style={{
                     padding: '8px 16px', borderRadius: 8,
@@ -822,7 +822,7 @@ export default function AnalyzeView({ onComplete }) {
                     color: projectResults.total_findings > 0 ? COLORS.danger : COLORS.success,
                     fontWeight: 600,
                   }}>
-                    {projectResults.total_findings > 0 ? `${projectResults.total_findings} findings` : 'no findings'}
+                    {projectResults.total_findings > 0 ? `${projectResults.total_findings}건 탐지` : '탐지 없음'}
                   </div>
                   {projectResults.summary.HIGH > 0 && (
                     <span style={{ padding: '8px 12px', borderRadius: 8, background: rgba(SEVERITY.HIGH, 0.1), color: SEVERITY.HIGH, fontSize: 12, fontWeight: 700 }}>
@@ -850,7 +850,7 @@ export default function AnalyzeView({ onComplete }) {
                       color: 'var(--text-muted)', fontSize: 11, cursor: 'pointer', fontWeight: 600,
                     }}
                   >
-[x] close
+닫기
                   </button>
                 </div>
 
@@ -863,7 +863,7 @@ export default function AnalyzeView({ onComplete }) {
                     fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-dim)',
                     textTransform: 'uppercase', letterSpacing: '0.12em', marginRight: 6,
                   }}>
-                    $ filter --scope=
+                    범위 필터
                   </span>
                   {[
                     { id: 'service',  label: '서비스 코드만', count: projectResults.service_files },
@@ -925,12 +925,12 @@ export default function AnalyzeView({ onComplete }) {
                             padding: '7px 12px',
                             cursor: 'pointer',
                             display: 'flex', alignItems: 'center', gap: 8,
-                            background: isSelected ? 'rgba(139, 40, 32, 0.08)' : 'transparent',
+                            background: isSelected ? 'var(--phosphor-bg)' : 'transparent',
                             borderLeft: isSelected ? '3px solid var(--rust)' : '3px solid transparent',
                             borderBottom: '1px solid var(--rule)',
                             transition: 'background 0.1s',
                           }}
-                          onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = 'rgba(26, 24, 21, 0.04)' }}
+                          onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = 'var(--bg-elev-2)' }}
                           onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = 'transparent' }}
                         >
                           <div style={{ flex: 1, minWidth: 0 }}>
@@ -1020,9 +1020,9 @@ export default function AnalyzeView({ onComplete }) {
                                       padding: '6px 14px', display: 'flex', alignItems: 'center', gap: 10,
                                       cursor: 'pointer', fontSize: 12,
                                       borderBottom: i < selectedFileResult.findings.length - 1 ? '1px solid var(--rule)' : 'none',
-                                      background: highlightLine === f.line ? 'rgba(139, 40, 32, 0.08)' : 'transparent',
+                                      background: highlightLine === f.line ? 'var(--phosphor-bg)' : 'transparent',
                                     }}
-                                    onMouseEnter={e => { if (highlightLine !== f.line) e.currentTarget.style.background = 'rgba(26, 24, 21, 0.04)' }}
+                                    onMouseEnter={e => { if (highlightLine !== f.line) e.currentTarget.style.background = 'var(--bg-elev-2)' }}
                                     onMouseLeave={e => { if (highlightLine !== f.line) e.currentTarget.style.background = 'transparent' }}
                                   >
                                     <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, color: 'var(--ink-mute)', minWidth: 36 }}>:{f.line}</span>
@@ -1046,7 +1046,7 @@ export default function AnalyzeView({ onComplete }) {
                         textTransform: 'uppercase',
                         letterSpacing: '0.14em',
                       }}>
-                        # select a file from the tree
+                        왼쪽 목록에서 파일을 선택하세요
                       </div>
                     )}
                   </div>
@@ -1063,7 +1063,7 @@ export default function AnalyzeView({ onComplete }) {
               onChange={setCode}
               findings={realtimeScan ? quickFindings : []}
               highlightLine={highlightLine}
-              placeholder="# paste source here, or upload a file&#10;# supported: py, java, js, ts, go, c, cpp, rb, php, cs, kt, rs (14+)"
+              placeholder="# 여기에 소스 코드를 붙여넣거나 파일을 업로드하세요&#10;# 지원: py, java, js, ts, go, c, cpp, rb, php, cs, kt, rs (14종+)"
             />
 
             {/* 실시간 스캔 결과 — 클릭하면 해당 줄로 이동 */}
@@ -1089,7 +1089,7 @@ export default function AnalyzeView({ onComplete }) {
                   letterSpacing: '0.14em',
                 }}>
                   <span style={{ color: 'var(--phosphor)', fontWeight: 700, fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: '0.14em', fontSize: 11 }}>
-                    [ quick_scan ]
+                    빠른 스캔
                   </span>
                   {(() => {
                     const high = quickFindings.filter(f => f.severity === 'HIGH').length
@@ -1125,10 +1125,10 @@ export default function AnalyzeView({ onComplete }) {
                           cursor: 'pointer',
                           fontSize: 13,
                           borderBottom: i < quickFindings.length - 1 ? '1px solid var(--rule)' : 'none',
-                          background: highlightLine === f.line ? 'rgba(139, 40, 32, 0.08)' : 'transparent',
+                          background: highlightLine === f.line ? 'var(--phosphor-bg)' : 'transparent',
                           transition: 'background 0.15s',
                         }}
-                        onMouseEnter={e => { if (highlightLine !== f.line) e.currentTarget.style.background = 'rgba(26, 24, 21, 0.04)' }}
+                        onMouseEnter={e => { if (highlightLine !== f.line) e.currentTarget.style.background = 'var(--bg-elev-2)' }}
                         onMouseLeave={e => { if (highlightLine !== f.line) e.currentTarget.style.background = 'transparent' }}
                       >
                         <span style={{
@@ -1183,7 +1183,7 @@ export default function AnalyzeView({ onComplete }) {
                 onChange={e => setRealtimeScan(e.target.checked)}
                 style={{ accentColor: COLORS.phosphor }}
               />
-              live_scan
+              실시간 스캔
             </label>
             <span style={{ width: 1, height: 14, background: 'var(--rule-hot)', alignSelf: 'center' }} />
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--ink-dim)', cursor: 'pointer', fontWeight: 600, fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
@@ -1193,7 +1193,7 @@ export default function AnalyzeView({ onComplete }) {
                 onChange={e => setUseLlm(e.target.checked)}
                 style={{ accentColor: 'var(--brand)' }}
               />
-              llm_patch
+              LLM 패치
             </label>
             {useLlm && (
               <>
@@ -1204,7 +1204,7 @@ export default function AnalyzeView({ onComplete }) {
                     onChange={e => setMultiPatch(e.target.checked)}
                     style={{ accentColor: 'var(--purple)' }}
                   />
-multi_patch
+다중 패치
                 </label>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: batchLlm ? COLORS.phosphor : 'var(--ink-dim)', cursor: 'pointer', fontWeight: 600, fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
                   <input
@@ -1214,7 +1214,7 @@ multi_patch
                     onChange={e => setBatchLlm(e.target.checked)}
                     style={{ accentColor: COLORS.phosphor }}
                   />
-batch_llm
+일괄 처리
                 </label>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: llmAuditWhenClean ? COLORS.cyan : 'var(--ink-dim)', cursor: 'pointer', fontWeight: 600, fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
                   <input
@@ -1223,7 +1223,7 @@ batch_llm
                     onChange={e => setLlmAuditWhenClean(e.target.checked)}
                     style={{ accentColor: COLORS.cyan }}
                   />
-ai_audit_clean
+AI 정밀점검
                 </label>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: securityRevalidation ? COLORS.amber : 'var(--ink-dim)', cursor: 'pointer', fontWeight: 600, fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
                   <input
@@ -1232,7 +1232,7 @@ ai_audit_clean
                     onChange={e => setSecurityRevalidation(e.target.checked)}
                     style={{ accentColor: COLORS.amber }}
                   />
-security_revalidation
+보안 재검증
                 </label>
                 <select
                   value={provider}
@@ -1284,7 +1284,7 @@ security_revalidation
                 <input
                   value={scopeText}
                   onChange={e => setScopeText(e.target.value)}
-                  placeholder="scope override: CWE-89,CWE-288,B608,AUTH-BYPASS"
+                  placeholder="범위 지정: CWE-89,CWE-288,B608,AUTH-BYPASS"
                   style={{
                     height: 32,
                     borderRadius: 0,
@@ -1356,7 +1356,7 @@ security_revalidation
                 value={userPrompt}
                 onChange={e => setUserPrompt(e.target.value)}
                 maxLength={2000}
-                placeholder="custom LLM instruction: e.g. keep public API unchanged, prefer minimal dependency changes, explain red-team exploit path first"
+                placeholder="LLM 추가 지시: 예) 공개 API 유지, 의존성 변경 최소화, 레드팀 공격 경로 먼저 설명"
                 style={{
                   minHeight: 62,
                   resize: 'vertical',
@@ -1391,10 +1391,10 @@ security_revalidation
                   fontFamily: 'var(--font-mono)',
                   textTransform: 'uppercase',
                   letterSpacing: '0.16em',
-                  boxShadow: disabled ? 'none' : '0 0 24px rgba(158, 255, 125, 0.25)',
+                  boxShadow: disabled ? 'none' : 'var(--shadow-md)',
                 }}
               >
-                {status === 'polling' ? '> running...' : projectMode ? '> ./redscan --file' : '> ./redscan ↗'}
+                {status === 'polling' ? '분석 중…' : projectMode ? '선택 파일 분석' : '분석 시작'}
               </button>
             )
           })()}
@@ -1419,7 +1419,7 @@ security_revalidation
             height: 14,
             background: 'var(--phosphor)',
             animation: 'cursor-blink 0.9s steps(2, start) infinite',
-            boxShadow: '0 0 12px rgba(158, 255, 125, 0.5)',
+            boxShadow: 'none',
             flexShrink: 0,
           }} />
           <span style={{
@@ -1537,8 +1537,8 @@ function ResultView({ result, source = '' }) {
           { key_: 'HIG', label: 'high',      value: summary.high || 0,             color: 'var(--blood)' },
           { key_: 'MED', label: 'med',       value: summary.medium || 0,           color: 'var(--amber)' },
           { key_: 'LOW', label: 'low',       value: summary.low || 0,              color: 'var(--cyan)' },
-          { key_: 'GEN', label: 'drafted',   value: summary.patches_generated || 0, color: 'var(--cyan)' },
-          { key_: 'VER', label: 'witnessed', value: summary.patches_verified || 0,  color: 'var(--phosphor)' },
+          { key_: 'GEN', label: '초안',   value: summary.patches_generated || 0, color: 'var(--cyan)' },
+          { key_: 'VER', label: '검증', value: summary.patches_verified || 0,  color: 'var(--phosphor)' },
         ].map((c, i) => (
           <div
             key={i}
@@ -1586,7 +1586,7 @@ function ResultView({ result, source = '' }) {
             ── redteam.objective
           </div>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: 1.8, color: 'var(--ink-dim)' }}>
-            attack_surface: <span style={{ color: 'var(--ink)' }}>{red.affected_files || 0} files</span><br />
+            공격 표면: <span style={{ color: 'var(--ink)' }}>{red.affected_files || 0}개 파일</span><br />
             unique_cwe: <span style={{ color: 'var(--ink)' }}>{red.unique_cwe || 0}</span><br />
             critical_high: <span style={{ color: 'var(--blood)' }}>{red.critical_or_high || 0}</span>
           </div>
@@ -1596,8 +1596,8 @@ function ResultView({ result, source = '' }) {
             ── blueteam.objective
           </div>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: 1.8, color: 'var(--ink-dim)' }}>
-            drafted: <span style={{ color: 'var(--ink)' }}>{blue.patches_generated || 0}</span><br />
-            verified: <span style={{ color: 'var(--phosphor)' }}>{blue.patches_verified || 0}</span><br />
+            초안: <span style={{ color: 'var(--ink)' }}>{blue.patches_generated || 0}</span><br />
+            검증: <span style={{ color: 'var(--phosphor)' }}>{blue.patches_verified || 0}</span><br />
             reduction: <span style={{ color: 'var(--phosphor)' }}>{comparison.risk_reduction_percent || 0}%</span>
           </div>
         </div>
@@ -1652,7 +1652,7 @@ function ResultView({ result, source = '' }) {
             fontWeight: 800,
             marginBottom: 8,
           }}>
-            llm_clean_audit: {llmAudit.status || 'reviewed'} · missed_findings {auditFindings.length}
+            AI 정밀점검: {llmAudit.status || 'reviewed'} · 놓친 항목 {auditFindings.length}
           </div>
           <div style={{ color: 'var(--ink)' }}>{llmAudit.summary}</div>
           {auditFindings.map((finding, i) => (
@@ -1684,9 +1684,9 @@ function ResultView({ result, source = '' }) {
           border: '1px dashed var(--phosphor-dim)',
         }}>
           <div className="empty-state__icon" style={{ color: 'var(--phosphor)' }}>OK</div>
-          <div className="empty-state__title" style={{ color: 'var(--phosphor)' }}>scan_clean</div>
+          <div className="empty-state__title" style={{ color: 'var(--phosphor)' }}>스캔 정상</div>
           <div className="empty-state__description">
-            no findings · 0 issues · exit 0
+            탐지 없음 · 이슈 0
           </div>
         </div>
       )}
@@ -1910,7 +1910,7 @@ function ResultView({ result, source = '' }) {
                         letterSpacing: '0.12em',
                         fontWeight: 700,
                       }}>
-                        [OK] verified
+                        ✓ 검증
                       </span>
                     )}
                   </div>
@@ -1941,8 +1941,8 @@ function ResultView({ result, source = '' }) {
                       textTransform: 'uppercase',
                       letterSpacing: '0.08em',
                     }}>
-                      defense_outcome: <span style={{ color: 'var(--phosphor)' }}>{patch.defense_outcome || 'drafted_defense'}</span>
-                      {' '}· residual_risk: <span style={{ color: 'var(--amber)' }}>{patch.residual_risk || 'unknown'}</span>
+                      방어 결과: <span style={{ color: 'var(--phosphor)' }}>{patch.defense_outcome || 'drafted_defense'}</span>
+                      {' '}· 잔여 위험: <span style={{ color: 'var(--amber)' }}>{patch.residual_risk || 'unknown'}</span>
                     </div>
                   )}
                   <PatchDiff
@@ -1974,9 +1974,9 @@ function ResultView({ result, source = '' }) {
                     borderLeft: '2px solid var(--blood)',
                     letterSpacing: '0.04em',
                     padding: '8px 14px',
-                    background: 'rgba(255, 61, 36, 0.05)',
+                    background: 'rgba(210, 58, 44, 0.06)',
                   }}>
-                    [FAIL] {failure.title}: {failure.detail}
+                    오류 · {failure.title}: {failure.detail}
                   </div>
                 )
               })()
@@ -2039,7 +2039,7 @@ function ApplyButton({ patch, vuln }) {
       <div style={{ width: '100%', marginTop: 4 }}>
         <div style={{
           padding: '12px 16px',
-          background: 'rgba(158, 255, 125, 0.06)',
+          background: 'rgba(10, 125, 86, 0.06)',
           border: '1px solid var(--phosphor-dim)',
           borderLeft: '2px solid var(--phosphor)',
           borderRadius: 0,
@@ -2059,7 +2059,7 @@ function ApplyButton({ patch, vuln }) {
               {branch && <span style={{ color: 'var(--ink-faint)', marginLeft: 8 }}>({branch})</span>}
             </>
           ) : (
-            <>[OK] patch applied {message && <span style={{ color: 'var(--ink-dim)' }}>&nbsp;·&nbsp; {message}</span>}</>
+            <>✓ 패치 적용됨 {message && <span style={{ color: 'var(--ink-dim)' }}>&nbsp;·&nbsp; {message}</span>}</>
           )}
         </div>
         {diff && (
@@ -2286,7 +2286,7 @@ function DownloadCodeButton({ code, filename, fixType }) {
         letterSpacing: '0.14em',
       }}
     >
-      {'> save.patch'}
+      {'패치 저장'}
     </button>
   )
 }
@@ -2383,7 +2383,7 @@ function ReportBar() {
           textTransform: 'uppercase',
           letterSpacing: '0.12em',
         }}>
-          # findings · patches · revalidation
+          탐지 · 패치 · 재검증
         </div>
         {error && (
           <div style={{
@@ -2392,7 +2392,7 @@ function ReportBar() {
             marginTop: 6,
             fontFamily: 'var(--font-mono)',
           }}>
-            [FAIL] {error}
+            오류 · {error}
           </div>
         )}
       </div>

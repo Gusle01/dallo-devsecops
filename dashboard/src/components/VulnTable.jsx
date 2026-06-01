@@ -19,10 +19,10 @@ function cvssColor(score) {
 }
 
 const filterOptions = [
-  { id: 'ALL',    label: 'all',    key: '*' },
-  { id: 'HIGH',   label: 'high',   key: 'h' },
-  { id: 'MEDIUM', label: 'med',    key: 'm' },
-  { id: 'LOW',    label: 'low',    key: 'l' },
+  { id: 'ALL',    label: '전체',    key: '*' },
+  { id: 'HIGH',   label: '높음',   key: 'h' },
+  { id: 'MEDIUM', label: '중간',    key: 'm' },
+  { id: 'LOW',    label: '낮음',    key: 'l' },
 ]
 
 export default function VulnTable({ vulns }) {
@@ -35,10 +35,10 @@ export default function VulnTable({ vulns }) {
     <div>
       <div className="page-header">
         <h1 className="page-title">
-          <em>$</em>&nbsp;findings <span style={{ color: 'var(--ink-faint)' }}>--list</span>
+          취약점
         </h1>
         <p className="page-subtitle">
-          {filtered.length} record(s) returned · ordered by severity, line, and rule
+          {filtered.length}건 · 심각도·라인·규칙 순으로 정렬
         </p>
       </div>
 
@@ -62,7 +62,7 @@ export default function VulnTable({ vulns }) {
           marginRight: 14,
           letterSpacing: '0.04em',
         }}>
-          $ grep --severity=
+          심각도 필터
         </span>
         {filterOptions.map((opt, i) => (
           <button
@@ -93,7 +93,7 @@ export default function VulnTable({ vulns }) {
           textTransform: 'uppercase',
           letterSpacing: '0.14em',
         }}>
-          {filtered.length} match{filtered.length !== 1 ? 'es' : ''}
+          {filtered.length}건
         </span>
       </div>
 
@@ -102,14 +102,14 @@ export default function VulnTable({ vulns }) {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr>
-              <th className="th-header" style={{ width: 36 }}>NN</th>
-              <th className="th-header">SEV</th>
+              <th className="th-header" style={{ width: 36 }}>번호</th>
+              <th className="th-header">심각도</th>
               <th className="th-header" style={{ textAlign: 'right' }}>CVSS</th>
-              <th className="th-header">PRI</th>
-              <th className="th-header">RULE</th>
-              <th className="th-header">TITLE</th>
-              <th className="th-header">FILE</th>
-              <th className="th-header" style={{ textAlign: 'right' }}>LN</th>
+              <th className="th-header">우선</th>
+              <th className="th-header">규칙</th>
+              <th className="th-header">제목</th>
+              <th className="th-header">파일</th>
+              <th className="th-header" style={{ textAlign: 'right' }}>라인</th>
               <th className="th-header">CWE</th>
               <th className="th-header">CVE</th>
             </tr>
@@ -199,7 +199,7 @@ export default function VulnTable({ vulns }) {
                           textTransform: 'uppercase',
                           letterSpacing: '0.16em',
                         }}>
-                          ┌─[ DETAIL ]──────────────
+                          상세 정보
                         </div>
                         <div style={{
                           fontFamily: 'var(--font-mono)',
@@ -239,9 +239,9 @@ export default function VulnTable({ vulns }) {
         {filtered.length === 0 && (
           <div className="empty-state">
             <div className="empty-state__icon">∅</div>
-            <div className="empty-state__title">no records</div>
+            <div className="empty-state__title">결과 없음</div>
             <div className="empty-state__description">
-              grep returned 0 matches for the current filter
+              현재 필터에 해당하는 항목이 없습니다
             </div>
           </div>
         )}

@@ -64,10 +64,10 @@ export default function RedBlueView() {
     <div>
       <div className="page-header">
         <h1 className="page-title">
-          Red <em style={{ color: 'var(--blood)' }}>Team</em> / Blue <em style={{ color: 'var(--cyan)' }}>Team</em>
+          레드팀 <em style={{ color: 'var(--blood)' }}>공격</em> · 블루팀 <em style={{ color: 'var(--cyan)' }}>방어</em>
         </h1>
         <p className="page-subtitle">
-          AI-based attack and defense analysis: exploitability, remediation, and before/after posture
+          AI 기반 공격·방어 분석 · 악용 가능성, 수정, 수정 전/후 보안 상태
         </p>
       </div>
 
@@ -79,11 +79,11 @@ export default function RedBlueView() {
         gap: 12,
         marginBottom: 28,
       }}>
-        <Metric label="red.findings" value={red.total_findings ?? 0} tone="var(--blood)" />
-        <Metric label="red.critical_high" value={red.critical_or_high ?? 0} tone="var(--blood)" />
-        <Metric label="blue.drafted" value={blue.patches_generated ?? 0} tone="var(--cyan)" />
-        <Metric label="blue.verified" value={blue.patches_verified ?? 0} tone="var(--phosphor)" />
-        <Metric label="risk.reduction" value={`${cmp.risk_reduction_percent ?? 0}%`} tone="var(--phosphor)" />
+        <Metric label="레드팀 탐지" value={red.total_findings ?? 0} tone="var(--blood)" />
+        <Metric label="심각·높음" value={red.critical_or_high ?? 0} tone="var(--blood)" />
+        <Metric label="블루팀 초안" value={blue.patches_generated ?? 0} tone="var(--cyan)" />
+        <Metric label="블루팀 검증" value={blue.patches_verified ?? 0} tone="var(--phosphor)" />
+        <Metric label="위험 감소" value={`${cmp.risk_reduction_percent ?? 0}%`} tone="var(--phosphor)" />
       </div>
 
       <div style={{
@@ -94,34 +94,34 @@ export default function RedBlueView() {
       }}>
         <section style={boxStyle}>
           <div className="section-label" style={{ color: 'var(--blood)' }}>
-            ── redteam.attack_surface
+            레드팀 · 공격 표면
           </div>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: 1.9, color: 'var(--ink-dim)' }}>
-            <div>affected_files: <span style={{ color: 'var(--ink)' }}>{red.affected_files ?? 0}</span></div>
-            <div>unique_cwe: <span style={{ color: 'var(--ink)' }}>{red.unique_cwe ?? 0}</span></div>
-            <div>objective: identify exploitable paths in real OSS targets</div>
+            <div>영향받은 파일: <span style={{ color: 'var(--ink)' }}>{red.affected_files ?? 0}</span></div>
+            <div>고유 CWE: <span style={{ color: 'var(--ink)' }}>{red.unique_cwe ?? 0}</span></div>
+            <div>목표: 실제 OSS 대상의 악용 가능한 경로 식별</div>
           </div>
         </section>
 
         <section style={boxStyle}>
           <div className="section-label" style={{ color: 'var(--cyan)' }}>
-            ── blueteam.defense_posture
+            블루팀 · 방어 태세
           </div>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: 1.9, color: 'var(--ink-dim)' }}>
-            <div>before_total: <span style={{ color: 'var(--ink)' }}>{cmp.before_total ?? 0}</span></div>
-            <div>after_total: <span style={{ color: 'var(--ink)' }}>{cmp.after_total ?? 0}</span></div>
-            <div>needs_review: <span style={{ color: 'var(--amber)' }}>{blue.patches_needing_review ?? 0}</span></div>
+            <div>수정 전 합계: <span style={{ color: 'var(--ink)' }}>{cmp.before_total ?? 0}</span></div>
+            <div>수정 후 합계: <span style={{ color: 'var(--ink)' }}>{cmp.after_total ?? 0}</span></div>
+            <div>검토 필요: <span style={{ color: 'var(--amber)' }}>{blue.patches_needing_review ?? 0}</span></div>
           </div>
         </section>
       </div>
 
       <section style={{ marginBottom: 34 }}>
         <div className="section-label" style={{ color: 'var(--phosphor)', marginBottom: 12 }}>
-          ── attack_paths.status
+          공격 경로 상태
         </div>
         {attackPaths.length === 0 ? (
           <div className="empty-state" style={{ padding: 30 }}>
-            <div className="empty-state__title">no attack paths</div>
+            <div className="empty-state__title">공격 경로 없음</div>
           </div>
         ) : (
           <div style={{ borderTop: '1px solid var(--rule-hot)' }}>
@@ -151,7 +151,7 @@ export default function RedBlueView() {
                     </div>
                   </div>
                   <div style={{ color: 'var(--ink-dim)', fontSize: 12, lineHeight: 1.6 }}>
-                    <span style={{ color: 'var(--blood)', fontFamily: 'var(--font-mono)' }}>[ATTACK]</span>{' '}
+                    <span style={{ color: 'var(--blood)', fontFamily: 'var(--font-mono)' }}>[공격]</span>{' '}
                     {path.attack_path || path.attack_goal}
                   </div>
                   <div style={{
@@ -167,10 +167,10 @@ export default function RedBlueView() {
                     {path.status}
                   </div>
                   <div style={{ color: 'var(--ink-dim)', fontSize: 12, lineHeight: 1.6 }}>
-                    <span style={{ color: 'var(--cyan)', fontFamily: 'var(--font-mono)' }}>[DEFENSE]</span>{' '}
-                    {path.defense || 'awaiting blue team action'}
+                    <span style={{ color: 'var(--cyan)', fontFamily: 'var(--font-mono)' }}>[방어]</span>{' '}
+                    {path.defense || '블루팀 조치 대기 중'}
                     <div style={{ color: 'var(--ink-faint)', fontFamily: 'var(--font-mono)', fontSize: 10, marginTop: 4 }}>
-                      residual_risk: {path.residual_risk || 'unknown'}
+                      잔여 위험: {path.residual_risk || 'unknown'}
                     </div>
                   </div>
                 </article>
@@ -187,11 +187,11 @@ export default function RedBlueView() {
       }}>
         <section>
           <div className="section-label" style={{ color: 'var(--blood)', marginBottom: 12 }}>
-            ── redteam.findings
+            레드팀 · 탐지
           </div>
           {topFindings.length === 0 ? (
             <div className="empty-state" style={{ padding: 30 }}>
-              <div className="empty-state__title">no attack findings</div>
+              <div className="empty-state__title">탐지된 공격 없음</div>
             </div>
           ) : topFindings.map((v, i) => (
             <article key={`${v.id}-${i}`} style={{ ...boxStyle, marginBottom: 10, borderLeft: '2px solid var(--blood)' }}>
@@ -204,7 +204,7 @@ export default function RedBlueView() {
               </div>
               {v.attack_plan && (
                 <div style={{ color: 'var(--ink-faint)', fontFamily: 'var(--font-mono)', fontSize: 11, marginTop: 8 }}>
-                  path: {v.attack_plan.attack_path || 'untrusted input -> sensitive operation'}
+                  경로: {v.attack_plan.attack_path || '신뢰할 수 없는 입력 → 민감한 작업'}
                 </div>
               )}
               <div style={{ color: 'var(--cyan)', fontFamily: 'var(--font-mono)', fontSize: 11, marginTop: 10 }}>
@@ -216,23 +216,23 @@ export default function RedBlueView() {
 
         <section>
           <div className="section-label" style={{ color: 'var(--cyan)', marginBottom: 12 }}>
-            ── blueteam.actions
+            블루팀 · 조치
           </div>
           {topPatches.length === 0 ? (
             <div className="empty-state" style={{ padding: 30 }}>
-              <div className="empty-state__title">no defense actions</div>
+              <div className="empty-state__title">방어 조치 없음</div>
             </div>
           ) : topPatches.map((p, i) => (
             <article key={`${p.vulnerability_id}-${i}`} style={{ ...boxStyle, marginBottom: 10, borderLeft: '2px solid var(--cyan)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
-                <strong style={{ color: 'var(--ink)' }}>{p.fix_type || 'recommended'} defense</strong>
+                <strong style={{ color: 'var(--ink)' }}>{p.fix_type || 'recommended'} 방어</strong>
                 <span style={{ color: 'var(--phosphor)', fontFamily: 'var(--font-mono)', fontSize: 11 }}>{p.defense_outcome || p.status}</span>
               </div>
               <div style={{ color: 'var(--ink-dim)', fontSize: 13, lineHeight: 1.6 }}>
                 {p.defense_strategy || p.explanation}
               </div>
               <div style={{ color: 'var(--cyan)', fontFamily: 'var(--font-mono)', fontSize: 11, marginTop: 10 }}>
-                status: {p.defense_plan?.status || p.defense_outcome || 'OPEN'} · residual_risk: {p.residual_risk || 'unknown'}
+                상태: {p.defense_plan?.status || p.defense_outcome || 'OPEN'} · 잔여 위험: {p.residual_risk || 'unknown'}
               </div>
             </article>
           ))}

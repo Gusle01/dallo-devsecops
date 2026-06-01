@@ -1,9 +1,15 @@
 import React, { useState, useEffect } from 'react'
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend, LineChart, Line } from 'recharts'
-import { SEVERITY, COLORS, STATUS } from '../colors'
+import {
+  ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  CartesianGrid, Legend, Label,
+} from 'recharts'
+import { SEVERITY, COLORS } from '../colors'
 import { apiFetch } from '../api/client'
 
 const API = window.location.origin
+
+const AXIS_TICK = { fill: COLORS.inkMute, fontSize: 11, fontFamily: 'var(--font-mono)' }
+const AXIS_LABEL = { fill: COLORS.inkDim, fontSize: 11, fontFamily: 'var(--font-body)', fontWeight: 600 }
 
 export default function HistoryView() {
   const [sessions, setSessions] = useState([])
@@ -37,7 +43,7 @@ export default function HistoryView() {
     }
   }
 
-  // 트렌드 차트 데이터 (시간순 정렬)
+  // 트렌드 차트 데이터 (오래된 → 최신 순서)
   const trendData = [...sessions].reverse().map(s => ({
     name: s.session_id.replace('session_', '').slice(0, 8),
     total: s.total_issues,
@@ -54,12 +60,10 @@ export default function HistoryView() {
         padding: 80,
         textAlign: 'center',
         color: 'var(--ink-dim)',
-        fontFamily: 'var(--font-mono)',
-        fontSize: 11,
-        textTransform: 'uppercase',
-        letterSpacing: '0.14em',
+        fontFamily: 'var(--font-body)',
+        fontSize: 13,
       }}>
-        $ tail -f /var/log/dallo
+        이력을 불러오는 중…
       </div>
     )
   }
@@ -67,83 +71,89 @@ export default function HistoryView() {
   return (
     <div>
       <div className="page-header">
-        <h1 className="page-title">
-          <em>$</em>&nbsp;log <span style={{ color: 'var(--ink-faint)' }}>--all</span>
-        </h1>
+        <h1 className="page-title">이력</h1>
         <p className="page-subtitle">
-          {sessions.length} prior session(s) on file · ordered chronologically
+          저장된 이전 세션 {sessions.length}건 · 시간순으로 정렬됩니다
         </p>
       </div>
 
-      {/* 트렌드 차트 */}
+      {/* 추이 차트 — 막대(심각도별 탐지) + 선(패치)을 하나로 통합 */}
       {sessions.length > 1 && (
         <div className="history-trend-grid">
           <div className="glass glass-card">
-            <div style={{ marginBottom: 18 }}>
-              <span className="chapter-label">FIG.01</span>
-              <h3 className="section-title">findings_over_time</h3>
-              <p className="text-subtitle"># trend by session</p>
+            <div style={{ marginBottom: 8 }}>
+              <span className="chapter-label">도표</span>
+              <h3 className="section-title">세션별 보안 추이</h3>
+              <p className="text-subtitle">
+                막대 = 심각도별 탐지 건수(왼쪽 축) · 선/점 = 패치 초안·검증 수(오른쪽 축)
+              </p>
             </div>
-            <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={trendData} animationDuration={600}>
-                <CartesianGrid strokeDasharray="0" stroke={COLORS.rule} vertical={false} />
-                <XAxis dataKey="name" tick={{ fill: COLORS.inkMute, fontSize: 11, fontFamily: 'Newsreader, serif', fontStyle: 'italic' }} axisLine={{ stroke: COLORS.ink }} tickLine={{ stroke: COLORS.ink }} />
-                <YAxis tick={{ fill: COLORS.inkMute, fontSize: 11, fontFamily: 'Newsreader, serif' }} allowDecimals={false} axisLine={{ stroke: COLORS.ink }} tickLine={{ stroke: COLORS.ink }} />
+            <ResponsiveContainer width="100%" height={340}>
+              <ComposedChart data={trendData} margin={{ top: 16, right: 28, bottom: 34, left: 14 }}>
+                <CartesianGrid stroke={COLORS.rule} vertical={false} />
+                <XAxis
+                  dataKey="name"
+                  tick={AXIS_TICK}
+                  axisLine={{ stroke: COLORS.ruleHot }}
+                  tickLine={{ stroke: COLORS.ruleHot }}
+                  height={48}
+                >
+                  <Label value="세션 (오래된 → 최신)" position="insideBottom" offset={-16} style={AXIS_LABEL} />
+                </XAxis>
+                <YAxis
+                  yAxisId="left"
+                  allowDecimals={false}
+                  tick={AXIS_TICK}
+                  axisLine={{ stroke: COLORS.ruleHot }}
+                  tickLine={{ stroke: COLORS.ruleHot }}
+                >
+                  <Label value="탐지 건수" angle={-90} position="insideLeft" offset={10} style={{ ...AXIS_LABEL, textAnchor: 'middle' }} />
+                </YAxis>
+                <YAxis
+                  yAxisId="right"
+                  orientation="right"
+                  allowDecimals={false}
+                  tick={AXIS_TICK}
+                  axisLine={{ stroke: COLORS.ruleHot }}
+                  tickLine={{ stroke: COLORS.ruleHot }}
+                >
+                  <Label value="패치 수" angle={90} position="insideRight" offset={10} style={{ ...AXIS_LABEL, textAnchor: 'middle' }} />
+                </YAxis>
                 <Tooltip
                   contentStyle={{
-                    background: COLORS.paperHi,
-                    border: `1px solid ${COLORS.ink}`,
-                    borderRadius: 0,
-                    boxShadow: '0 2px 0 rgba(26,24,21,0.1), 0 8px 24px rgba(26,24,21,0.08)',
+                    background: COLORS.bgElev,
+                    border: `1px solid ${COLORS.ruleHot}`,
+                    borderRadius: 10,
+                    boxShadow: '0 8px 24px rgba(40,34,20,0.12)',
                     padding: '10px 14px',
                     fontSize: 12,
-                    fontFamily: 'Newsreader, Georgia, serif',
+                    fontFamily: 'var(--font-body)',
                     color: COLORS.ink,
                   }}
-                  cursor={{ fill: 'rgba(26,24,21,0.05)' }}
+                  labelStyle={{ color: COLORS.inkDim, fontFamily: 'var(--font-mono)', marginBottom: 4 }}
+                  cursor={{ fill: 'rgba(35,32,25,0.05)' }}
                 />
-                <Bar dataKey="high" fill={SEVERITY.HIGH} name="HIGH" stackId="a" radius={[0, 0, 0, 0]} animationBegin={0} />
-                <Bar dataKey="medium" fill={SEVERITY.MEDIUM} name="MEDIUM" stackId="a" animationBegin={100} />
-                <Bar dataKey="low" fill={SEVERITY.LOW} name="LOW" stackId="a" radius={[4, 4, 0, 0]} animationBegin={200} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-
-          <div className="glass glass-card">
-            <div style={{ marginBottom: 18 }}>
-              <span className="chapter-label">FIG.02</span>
-              <h3 className="section-title">patches_vs_verified</h3>
-              <p className="text-subtitle"># draft yield over time</p>
-            </div>
-            <ResponsiveContainer width="100%" height={200}>
-              <LineChart data={trendData} animationDuration={1200} animationEasing="ease-out">
-                <CartesianGrid strokeDasharray="0" stroke={COLORS.rule} vertical={false} />
-                <XAxis dataKey="name" tick={{ fill: COLORS.inkMute, fontSize: 11, fontFamily: 'Newsreader, serif', fontStyle: 'italic' }} axisLine={{ stroke: COLORS.ink }} tickLine={{ stroke: COLORS.ink }} />
-                <YAxis tick={{ fill: COLORS.inkMute, fontSize: 11, fontFamily: 'Newsreader, serif' }} allowDecimals={false} axisLine={{ stroke: COLORS.ink }} tickLine={{ stroke: COLORS.ink }} />
-                <Tooltip
-                  contentStyle={{
-                    background: 'rgba(15, 20, 32, 0.95)',
-                    border: '1px solid rgba(255,255,255,0.12)',
-                    borderRadius: 12,
-                    backdropFilter: 'blur(16px)',
-                    fontSize: 12,
-                  }}
+                <Legend
+                  wrapperStyle={{ fontSize: 12, paddingTop: 14, fontFamily: 'var(--font-body)' }}
+                  iconType="circle"
                 />
-                <Line type="monotone" dataKey="patches"  stroke={COLORS.rust}  name="Drafted"   strokeWidth={2} dot={{ r: 3, fill: COLORS.rust }}  animationBegin={0} />
-                <Line type="monotone" dataKey="verified" stroke={COLORS.olive} name="Witnessed" strokeWidth={2} dot={{ r: 3, fill: COLORS.olive }} animationBegin={300} />
-                <Legend wrapperStyle={{ fontSize: 11, paddingTop: 12, fontFamily: 'Newsreader, serif', fontStyle: 'italic', textTransform: 'uppercase', letterSpacing: '0.12em' }} iconType="square" />
-              </LineChart>
+                <Bar yAxisId="left" dataKey="high"   name="높음 (High)"   stackId="sev" fill={SEVERITY.HIGH} maxBarSize={46} />
+                <Bar yAxisId="left" dataKey="medium" name="중간 (Medium)" stackId="sev" fill={SEVERITY.MEDIUM} maxBarSize={46} />
+                <Bar yAxisId="left" dataKey="low"    name="낮음 (Low)"    stackId="sev" fill={SEVERITY.LOW} radius={[3, 3, 0, 0]} maxBarSize={46} />
+                <Line yAxisId="right" type="monotone" dataKey="patches"  name="패치 초안" stroke={COLORS.cyan}     strokeWidth={2} dot={{ r: 3, fill: COLORS.cyan }} />
+                <Line yAxisId="right" type="monotone" dataKey="verified" name="검증 완료" stroke={COLORS.phosphor} strokeWidth={2} dot={{ r: 3, fill: COLORS.phosphor }} />
+              </ComposedChart>
             </ResponsiveContainer>
           </div>
         </div>
       )}
 
-      {/* Sessions table */}
+      {/* 세션 테이블 */}
       <div className="table-scroll-wrapper">
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr>
-              {['SESSION', 'REPO', 'TOT', 'HIG', 'MED', 'LOW', 'GEN', 'VER', 'DUR', 'TIME'].map(h => (
+              {['세션', '저장소', '합계', '높음', '중간', '낮음', '초안', '검증', '소요', '시각'].map(h => (
                 <th key={h} className="th-header">
                   {h}
                 </th>
@@ -163,19 +173,19 @@ export default function HistoryView() {
                   <td className="td-cell" style={{ color: 'var(--ink-soft)' }}>{s.repo}</td>
                   <td className="td-cell" style={{
                     fontFamily: 'var(--font-display)',
-                    fontVariationSettings: "'opsz' 24",
                     fontSize: 18,
+                    fontWeight: 600,
                     color: 'var(--ink)',
                   }}>{s.total_issues}</td>
-                  <td className="td-cell" style={{ color: COLORS.rust, fontWeight: 700 }}>{s.high_count}</td>
-                  <td className="td-cell" style={{ color: COLORS.ochre, fontWeight: 700 }}>{s.medium_count}</td>
-                  <td className="td-cell" style={{ color: COLORS.navy, fontWeight: 700 }}>{s.low_count}</td>
+                  <td className="td-cell" style={{ color: COLORS.blood, fontWeight: 700 }}>{s.high_count}</td>
+                  <td className="td-cell" style={{ color: COLORS.amber, fontWeight: 700 }}>{s.medium_count}</td>
+                  <td className="td-cell" style={{ color: COLORS.cyan, fontWeight: 700 }}>{s.low_count}</td>
                   <td className="td-cell" style={{ color: COLORS.inkSoft, fontWeight: 600 }}>{s.patches_generated}</td>
-                  <td className="td-cell" style={{ color: COLORS.olive, fontWeight: 600 }}>{s.patches_verified}</td>
+                  <td className="td-cell" style={{ color: COLORS.phosphor, fontWeight: 600 }}>{s.patches_verified}</td>
                   <td className="td-cell td-cell--mono" style={{ fontSize: 11, color: 'var(--ink-mute)' }}>
                     {s.duration_seconds ? `${s.duration_seconds.toFixed(1)}s` : '—'}
                   </td>
-                  <td className="td-cell" style={{ fontSize: 11, color: 'var(--ink-mute)', fontStyle: 'italic' }}>
+                  <td className="td-cell td-cell--mono" style={{ fontSize: 11, color: 'var(--ink-mute)' }}>
                     {s.started_at ? s.started_at.slice(0, 16).replace('T', ' ') : '—'}
                   </td>
                 </tr>
@@ -186,7 +196,7 @@ export default function HistoryView() {
                         {detail.vulnerabilities && detail.vulnerabilities.length > 0 && (
                           <div style={{ marginBottom: 18 }}>
                             <div className="section-label" style={{ color: 'var(--phosphor)' }}>
-                              [ findings ] {detail.vulnerabilities.length}
+                              탐지 {detail.vulnerabilities.length}건
                             </div>
                             {detail.vulnerabilities.map((v, vi) => (
                               <div key={vi} style={{
@@ -202,11 +212,11 @@ export default function HistoryView() {
                                   color: SEVERITY[v.severity] || COLORS.inkMute,
                                   fontWeight: 700,
                                   textTransform: 'uppercase',
-                                  letterSpacing: '0.12em',
+                                  letterSpacing: '0.08em',
                                   fontSize: 10,
                                   minWidth: 70,
                                 }}>
-                                  § {v.severity}
+                                  {v.severity}
                                 </span>
                                 <span style={{ fontFamily: 'var(--font-mono)', color: COLORS.inkMute, fontSize: 11 }}>{v.rule_id}</span>
                                 <span style={{ color: 'var(--ink)' }}>{v.title}</span>
@@ -220,7 +230,7 @@ export default function HistoryView() {
                         {detail.patches && detail.patches.filter(p => p.fixed_code).length > 0 && (
                           <div>
                             <div className="section-label" style={{ color: 'var(--phosphor)' }}>
-                              [ patches ] {detail.patches.filter(p => p.fixed_code).length}
+                              패치 {detail.patches.filter(p => p.fixed_code).length}건
                             </div>
                             {detail.patches.filter(p => p.fixed_code).map((p, pi) => (
                               <div key={pi} style={{
@@ -232,7 +242,7 @@ export default function HistoryView() {
                                 borderBottom: '1px dotted var(--rule)',
                               }}>
                                 <span className={`badge-status badge-status--${p.status?.includes('verified') || p.status?.includes('VERIFIED') ? 'verified' : 'generated'}`}>
-                                  {p.status?.includes('verified') || p.status?.includes('VERIFIED') ? 'verified' : 'drafted'}
+                                  {p.status?.includes('verified') || p.status?.includes('VERIFIED') ? '검증' : '초안'}
                                 </span>
                                 <span style={{ color: COLORS.inkMute, fontFamily: 'var(--font-mono)', fontSize: 11 }}>{p.vulnerability_id}</span>
                               </div>
@@ -242,11 +252,9 @@ export default function HistoryView() {
                         {!detail.vulnerabilities?.length && (
                           <div style={{
                             color: COLORS.inkFaint,
-                            fontSize: 11,
-                            fontFamily: 'var(--font-mono)',
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.14em',
-                          }}># no detail on file</div>
+                            fontSize: 12,
+                            fontFamily: 'var(--font-body)',
+                          }}>상세 정보가 없습니다</div>
                         )}
                       </div>
                     </td>
@@ -260,9 +268,9 @@ export default function HistoryView() {
         {sessions.length === 0 && (
           <div className="empty-state">
             <div className="empty-state__icon">∅</div>
-            <div className="empty-state__title">log empty</div>
+            <div className="empty-state__title">이력 없음</div>
             <div className="empty-state__description">
-              run your first scan from the analyze tab
+              레드팀 분석 탭에서 첫 스캔을 실행하세요
             </div>
           </div>
         )}

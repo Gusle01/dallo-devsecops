@@ -26,7 +26,7 @@ export default function DependencyView() {
         resp = await apiFetch('/api/dependencies')
       }
       if (!resp.ok) {
-        setError(`HTTP_${resp.status}: server returned non-ok · restart with: $ python start.py`)
+        setError(`HTTP_${resp.status}: 서버 오류 · 재시작: python start.py`)
         setLoading(false)
         return
       }
@@ -34,10 +34,10 @@ export default function DependencyView() {
       if (data.results && data.results.length > 0) {
         setResults(data.results)
       } else {
-        setError('NO_RESULTS: scanner returned empty · restart server and retry')
+        setError('결과 없음: 스캐너가 빈 응답을 반환했습니다 · 서버 재시작 후 다시 시도하세요')
       }
     } catch (e) {
-      setError(`SCAN_FAIL: ${e.message}`)
+      setError(`스캔 실패: ${e.message}`)
     }
     setLoading(false)
   }
@@ -46,10 +46,10 @@ export default function DependencyView() {
     <div>
       <div className="page-header">
         <h1 className="page-title">
-          <em>$</em>&nbsp;deps <span style={{ color: 'var(--ink-faint)' }}>--audit</span>
+          의존성
         </h1>
         <p className="page-subtitle">
-          checks each declared library against CVE/GHSA registries — uninvited guests will be named
+          선언된 각 라이브러리를 CVE/GHSA 등록소와 대조해 취약한 의존성을 찾아냅니다
         </p>
       </div>
 
@@ -57,8 +57,8 @@ export default function DependencyView() {
       <div className="glass glass-card" style={{ marginBottom: 20 }}>
         <div className="tab-bar">
           {[
-            { id: 'project', label: 'project_scan' },
-            { id: 'text', label: 'paste_requirements' },
+            { id: 'project', label: '프로젝트 스캔' },
+            { id: 'text', label: 'requirements 붙여넣기' },
           ].map(m => (
             <button
               key={m.id}
@@ -78,19 +78,19 @@ export default function DependencyView() {
             style={{
               width: '100%',
               minHeight: 160,
-              background: '#15130f',
-              border: '1px solid var(--ink)',
-              borderLeft: '2px solid var(--ink)',
+              background: 'var(--bg-deep)',
+              border: '1px solid var(--rule-hot)',
+              borderLeft: '2px solid var(--rule-bright)',
               borderRadius: 0,
               padding: 18,
-              color: '#e8e0c8',
+              color: 'var(--ink)',
               fontFamily: 'JetBrains Mono, monospace',
               fontSize: 13,
               lineHeight: 1.8,
               resize: 'vertical',
               marginTop: 18,
               marginBottom: 18,
-              caretColor: '#ab4a34',
+              caretColor: 'var(--phosphor)',
             }}
           />
         )}
@@ -105,15 +105,15 @@ export default function DependencyView() {
             cursor: loading ? 'wait' : 'pointer',
             fontSize: 11,
             fontWeight: 700,
-            background: loading ? 'var(--paper-deep)' : 'var(--ink)',
-            color: loading ? 'var(--ink-mute)' : 'var(--paper)',
+            background: loading ? 'var(--bg-elev-2)' : 'var(--phosphor)',
+            color: loading ? 'var(--ink-faint)' : '#fff',
             fontFamily: 'var(--font-body)',
             textTransform: 'uppercase',
             letterSpacing: '0.18em',
             marginTop: scanMode === 'text' ? 0 : 18,
           }}
         >
-          {loading ? '> scanning...' : '> ./audit_deps ↗'}
+          {loading ? '스캔 중…' : '의존성 점검'}
         </button>
       </div>
 
@@ -171,7 +171,7 @@ export default function DependencyView() {
                   textTransform: 'uppercase',
                   letterSpacing: '0.14em',
                 }}>
-                  # {r.summary?.total_packages || 0} packages scanned
+                  {r.summary?.total_packages || 0}개 패키지 스캔
                 </div>
               </div>
             </div>
@@ -194,7 +194,7 @@ export default function DependencyView() {
           {r.vulnerabilities && r.vulnerabilities.length > 0 && (
             <div style={{ marginBottom: 16 }}>
               <div className="section-label" style={{ color: 'var(--phosphor)' }}>
-                [ findings ] {r.vulnerabilities.length} record(s)
+                발견 {r.vulnerabilities.length}건
               </div>
               <div className="table-scroll-wrapper" style={{
                 borderRadius: 0,
@@ -203,12 +203,12 @@ export default function DependencyView() {
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                   <thead>
                     <tr>
-                      <th className="th-header">Severity</th>
-                      <th className="th-header">Package</th>
-                      <th className="th-header">Installed</th>
-                      <th className="th-header">Advisory</th>
-                      <th className="th-header">Fixed in</th>
-                      <th className="th-header">Description</th>
+                      <th className="th-header">심각도</th>
+                      <th className="th-header">패키지</th>
+                      <th className="th-header">설치 버전</th>
+                      <th className="th-header">권고</th>
+                      <th className="th-header">수정 버전</th>
+                      <th className="th-header">설명</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -258,12 +258,12 @@ export default function DependencyView() {
                 fontWeight: 600,
                 padding: '8px 0',
               }}>
-▸ sbom · {r.packages.length} packages
+▸ SBOM · {r.packages.length}개 패키지
               </summary>
               <div style={{
                 marginTop: 10,
                 padding: '16px 18px',
-                background: '#15130f',
+                background: 'var(--bg-deep)',
                 borderRadius: 0,
                 borderLeft: '2px solid var(--ink-mute)',
                 fontSize: 11,
@@ -271,11 +271,11 @@ export default function DependencyView() {
                 maxHeight: 240,
                 overflow: 'auto',
                 lineHeight: 1.85,
-                color: '#e8e0c8',
+                color: 'var(--ink)',
               }}>
                 {r.packages.map((pkg, pi) => (
-                  <div key={pi} style={{ color: 'rgba(232, 224, 200, 0.85)' }}>
-                    {pkg.name} <span style={{ color: 'rgba(232, 224, 200, 0.5)' }}>=={pkg.version}</span>
+                  <div key={pi} style={{ color: 'var(--ink)' }}>
+                    {pkg.name} <span style={{ color: 'var(--ink-faint)' }}>=={pkg.version}</span>
                   </div>
                 ))}
               </div>
@@ -287,9 +287,9 @@ export default function DependencyView() {
       {results.length === 0 && !loading && !error && (
         <div className="empty-state">
           <div className="empty-state__icon">∅</div>
-          <div className="empty-state__title">no audit on file</div>
+          <div className="empty-state__title">점검 이력 없음</div>
           <div className="empty-state__description">
-            run ./audit_deps to populate this register
+            위에서 의존성 점검을 실행하세요
           </div>
         </div>
       )}
