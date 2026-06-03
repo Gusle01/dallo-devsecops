@@ -630,6 +630,10 @@ export default function AnalyzeView({ onComplete }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       })
+      if (!resp.ok) {
+        const detail = await resp.text().catch(() => '')
+        throw new Error(`서버 오류 ${resp.status}${detail ? ` — ${detail.slice(0, 160)}` : ''}`)
+      }
       const data = await resp.json()
       const jobId = data.job_id
 

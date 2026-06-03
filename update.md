@@ -1,5 +1,25 @@
 # Dallo DevSecOps 변경 내역
 
+## 2026-06-03 (5차 — 레드팀 분석 실행 시 500/"request error" 수정 · 발표용 보고서 추가)
+
+### 1. 분석 요청이 `[FAIL] request error: The string did not match the expected pattern`로 실패하는 문제 수정
+
+- 문제: `레드팀 분석`에서 스캔 실행 시 `[FAIL] request error: The string did not match the expected pattern`가 표시되며 분석이 시작되지 않음.
+- 원인: 백엔드 `POST /api/analyze`가 HTTP 500(text/plain "Internal Server Error")을 반환했고, 프론트가 그 비‑JSON 응답을 `resp.json()`으로 파싱하다 실패한 것(브라우저별 JSON 파싱 예외 메시지). 500의 근본 원인은 — 서버 시작 시 **한 번만** Redis 연결로 `_USE_CELERY`를 결정(`api/server.py:62~70`)하는데, 시작 당시 Redis가 떠 있어 Celery 모드로 고정된 뒤 **Redis가 꺼지면서** `run_analysis_task.delay()`가 런타임에 실패(처리 안 된 예외)했기 때문. Celery 경로에 브로커 장애 시 런타임 폴백이 없었음.
+- 수정(백엔드, 근본): `POST /api/analyze`의 Celery 제출을 `try/except`로 감싸 **실패 시 메모리 방식으로 자동 폴백**(README의 "Redis 미실행 → 메모리 폴백"과 일치). GET 폴링 핸들러가 메모리 작업을 먼저 조회하므로 폴링도 그대로 동작.
+- 수정(프론트, 방어): 응답이 `resp.ok`가 아니면 cryptic 파싱 오류 대신 `서버 오류 500 — …`처럼 원인이 보이는 메시지를 표시.
+- 수정 파일: `api/server.py`, `dashboard/src/components/AnalyzeView.jsx`
+
+### 2. 발표용 종합 보고서 추가
+
+- `report.md` 추가 — 프로젝트 구성/동작 원리/기능별 상세/데이터 모델/화면/기술 스택/보안 설계/CI/CD를 한 곳에 정리한 발표 자료용 문서(README + 코드 레벨 사실 종합).
+
+### 검증 (5차)
+
+- `POST /api/analyze` → HTTP 200(`backend: memory`), 폴링 `analyzing → completed`, 취약점 2건 탐지 확인.
+- `py_compile`(`api/server.py`) 통과, `dashboard` `npm run build` 통과(dist 재빌드).
+- 참고: 무거운 분석을 별도 워커에서 안정적으로 처리하려면 Redis + Celery worker 실행 권장(현재는 Redis 없이도 메모리로 동작).
+
 ## 2026-06-02 (4차 패치 — 대시보드 라이트 테마 전환 · 한글화 · 리포트 최신화 · git push 수정)
 
 ### 1. 대시보드를 다크 터미널 → 라이트 테마로 전환 + 한글화

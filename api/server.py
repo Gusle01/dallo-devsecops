@@ -807,22 +807,26 @@ def _run_analysis(
 def start_analysis(req: AnalyzeRequest, background_tasks: BackgroundTasks):
     """코드를 제출하여 분석을 시작합니다. Celery 사용 가능 시 task로 제출."""
     if _USE_CELERY:
-        # Celery task로 제출
-        task = run_analysis_task.delay(
-            code=req.code, filename=req.filename,
-            use_llm=req.use_llm, provider=req.provider,
-            model=req.model, multi_patch=req.multi_patch,
-            cve_scope=req.cve_scope, cwe_scope=req.cwe_scope,
-            rule_scope=req.rule_scope, max_llm_targets=req.max_llm_targets,
-            max_context_chars=req.max_context_chars, batch_llm=req.batch_llm,
-            llm_audit_when_clean=req.llm_audit_when_clean,
-            user_prompt=req.user_prompt,
-            security_revalidation=req.security_revalidation,
-            llm_max_retries=req.llm_max_retries,
-        )
-        return {"job_id": task.id, "status": "queued", "message": "분석이 시작되었습니다. (Celery)", "backend": "celery"}
+        try:
+            # Celery task로 제출
+            task = run_analysis_task.delay(
+                code=req.code, filename=req.filename,
+                use_llm=req.use_llm, provider=req.provider,
+                model=req.model, multi_patch=req.multi_patch,
+                cve_scope=req.cve_scope, cwe_scope=req.cwe_scope,
+                rule_scope=req.rule_scope, max_llm_targets=req.max_llm_targets,
+                max_context_chars=req.max_context_chars, batch_llm=req.batch_llm,
+                llm_audit_when_clean=req.llm_audit_when_clean,
+                user_prompt=req.user_prompt,
+                security_revalidation=req.security_revalidation,
+                llm_max_retries=req.llm_max_retries,
+            )
+            return {"job_id": task.id, "status": "queued", "message": "분석이 시작되었습니다. (Celery)", "backend": "celery"}
+        except Exception as e:
+            # 브로커(Redis) 장애 등으로 Celery 제출 실패 → 메모리 방식으로 폴백
+            print(f"[WARN] Celery 제출 실패 — 메모리 방식으로 폴백합니다: {e}")
 
-    # Celery 미사용 fallback — 기존 메모리 방식
+    # Celery 미사용 또는 제출 실패 시 — 메모리 방식
     job_id = f"job_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
 
     analysis_jobs[job_id] = {
