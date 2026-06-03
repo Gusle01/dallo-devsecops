@@ -18,6 +18,17 @@ function cvssColor(score) {
   return 'var(--cyan)'
 }
 
+// 표시 위험도는 CVSS 기반 risk_level로 통일한다(critical은 '높음'에 묶음).
+// 도구 severity와 CVSS가 다를 수 있어(예: SSRF=MEDIUM이지만 CVSS 9.1=critical)
+// 대시보드/공격·방어와 동일 기준으로 맞춘다.
+function riskBucket(v) {
+  const r = (v.risk_level || v.severity || '').toLowerCase()
+  if (r === 'critical' || r === 'high') return 'HIGH'
+  if (r === 'medium') return 'MEDIUM'
+  if (r === 'low') return 'LOW'
+  return 'UNKNOWN'
+}
+
 const filterOptions = [
   { id: 'ALL',    label: '전체',    key: '*' },
   { id: 'HIGH',   label: '높음',   key: 'h' },
@@ -29,7 +40,7 @@ export default function VulnTable({ vulns }) {
   const [filter, setFilter] = useState('ALL')
   const [expanded, setExpanded] = useState(null)
 
-  const filtered = filter === 'ALL' ? vulns : vulns.filter(v => v.severity === filter)
+  const filtered = filter === 'ALL' ? vulns : vulns.filter(v => riskBucket(v) === filter)
 
   return (
     <div>
@@ -127,7 +138,7 @@ export default function VulnTable({ vulns }) {
                     {expanded === i ? '▼ ' : '> '}{String(i + 1).padStart(2, '0')}
                   </td>
                   <td className="td-cell">
-                    <SeverityCell severity={v.severity} />
+                    <SeverityCell severity={(v.risk_level || v.severity || 'unknown').toUpperCase()} />
                   </td>
                   <td className="td-cell td-cell--mono" style={{
                     textAlign: 'right',

@@ -483,6 +483,21 @@ def _with_red_blue(data: dict) -> dict:
     data = {**data, "vulnerabilities": vulns, "patches": patches}
     data["analysis_mode"] = "red_blue"
     data["red_blue_summary"] = build_red_blue_summary(vulns, patches)
+
+    # 위험도 카운트를 CVSS 기반 risk_level로 통일한다.
+    # (대시보드 카드의 high/medium/low == 공격/방어 '심각·높음'과 같은 기준)
+    # 도구 severity와 CVSS risk_level이 다를 수 있어(예: SSRF=MEDIUM이지만 CVSS 9.1=critical)
+    # 두 화면 숫자가 어긋나던 문제를 해결한다. critical은 high에 합산한다.
+    def _risk_bucket(v):
+        return (v.get("risk_level") or v.get("severity") or "").lower()
+
+    summary = dict(data.get("summary") or {})
+    summary["total"] = len(vulns)
+    summary["critical"] = sum(1 for v in vulns if _risk_bucket(v) == "critical")
+    summary["high"] = sum(1 for v in vulns if _risk_bucket(v) in ("critical", "high"))
+    summary["medium"] = sum(1 for v in vulns if _risk_bucket(v) == "medium")
+    summary["low"] = sum(1 for v in vulns if _risk_bucket(v) == "low")
+    data["summary"] = summary
     return data
 
 
@@ -628,9 +643,9 @@ def get_vulnerabilities_by_file():
         fp = v.get("file_path", "unknown")
         if fp not in file_counts:
             file_counts[fp] = {"file": fp, "high": 0, "medium": 0, "low": 0, "total": 0}
-        sev = v.get("severity", "LOW").lower()
-        if sev in file_counts[fp]:
-            file_counts[fp][sev] += 1
+        r = (v.get("risk_level") or v.get("severity") or "low").lower()
+        sev = "high" if r in ("critical", "high") else "medium" if r == "medium" else "low"
+        file_counts[fp][sev] += 1
         file_counts[fp]["total"] += 1
 
     return {"files": list(file_counts.values())}

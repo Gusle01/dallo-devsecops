@@ -1,5 +1,23 @@
 # Dallo DevSecOps 변경 내역
 
+## 2026-06-03 (6차 — 대시보드/공격·방어 위험도 갯수 불일치 수정)
+
+### 1. 화면마다 위험도 갯수가 다르게 나오는 문제 수정 (CVSS 기준으로 통일)
+
+- 문제: 같은 분석인데 대시보드 카드(예: HIGH 1)와 공격/방어 '심각·높음'(예: 2)의 위험도 갯수가 어긋남.
+- 원인: 두 화면이 서로 다른 기준으로 카운트 — 대시보드 카드/파일별 차트는 도구 `severity`(HIGH/MEDIUM/LOW), 공격/방어 'critical_or_high'와 취약점 표의 CVSS 컬럼은 `risk_level`(CVSS 기반 critical/high/medium/low). 도구 severity와 CVSS가 달라질 수 있어(예: SSRF=MEDIUM이지만 CVSS 9.1=critical, 하드코딩 시크릿=HIGH지만 CVSS 9.1=critical) 숫자가 어긋남.
+- 수정: 표시 위험도를 **CVSS `risk_level` 기준으로 통일**(critical은 '높음'에 합산):
+  - `api/server.py` `_with_red_blue`: enrich된 취약점(risk_level 포함)으로 대시보드 summary의 high/medium/low를 재계산 → 대시보드 카드 == 공격/방어 '심각·높음'.
+  - `api/server.py` `/api/vulnerabilities/by-file`: 파일별 차트(FileChart)도 risk_level 기준.
+  - `dashboard/src/components/VulnTable.jsx`: 취약점 표의 심각도 배지·필터도 risk_level 기준(이제 CVSS 9.x는 CRITICAL 배지로 표시되어 CVSS 컬럼과 일치).
+- 수정 파일: `api/server.py`, `dashboard/src/components/VulnTable.jsx`
+
+### 검증 (6차)
+
+- 실제 데이터 확인: `/api/stats`의 high == `/api/red-blue/summary` red_team.critical_or_high (1==1, 2==2 등), `/api/vulnerabilities/by-file`도 카드와 동일.
+- `py_compile`(`api/server.py`) 통과, `dashboard` `npm run build` 통과(dist 재빌드).
+- 참고: 이력(추이) 차트는 세션 저장 시점의 도구 severity 기반 저장값을 사용하므로 기존 세션은 옛 기준이 남을 수 있음(다음 분석부터 통일).
+
 ## 2026-06-03 (5차 — 레드팀 분석 실행 시 500/"request error" 수정 · 발표용 보고서 추가)
 
 ### 1. 분석 요청이 `[FAIL] request error: The string did not match the expected pattern`로 실패하는 문제 수정
