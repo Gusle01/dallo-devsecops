@@ -599,8 +599,11 @@ Blue Team 관점에서 기존 기능을 유지한 3가지 수준의 안전한 �
             ("structural", "구조적 개선", r"옵션\s*3[:\s].*?(?:Structural|구조)"),
         ]
 
-        # 옵션별로 분리
-        sections = re.split(r"###\s*옵션\s*\d", response)
+        # 옵션별로 분리.
+        # LLM이 헤더의 '#' 개수(##/###/####)나 굵게(**), 영문(Option)을 오락가락하므로
+        # 줄 시작의 'N개 # 또는 **' + '옵션/Option' + 숫자를 유연하게 인식한다.
+        # (기존엔 '###'만 인식해 ## 형식이 오면 분할 실패 → 단일 1건으로 폴백되던 버그)
+        sections = re.split(r"(?im)^[ \t]*(?:#{1,4}|\*\*)[ \t]*(?:옵션|option)[ \t]*\d", response)
         patches = []
 
         for i, (fix_type, label, _) in enumerate(fix_types):
